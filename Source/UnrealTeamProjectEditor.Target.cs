@@ -8,8 +8,9 @@ public class UnrealTeamProjectEditorTarget : TargetRules
 	public UnrealTeamProjectEditorTarget( TargetInfo Target) : base(Target)
 	{
 		Type = TargetType.Editor;
-		DefaultBuildSettings = BuildSettingsVersion.V6;
-		IncludeOrderVersion = EngineIncludeOrderVersion.Unreal5_7;
+		DefaultBuildSettings = BuildSettingsVersion.V5;
+		IncludeOrderVersion = EngineIncludeOrderVersion.Unreal5_5;
+		UndefinedIdentifierWarningLevel = WarningLevel.Error;
 		ExtraModuleNames.Add("UnrealTeamProject");
 	}
 }
