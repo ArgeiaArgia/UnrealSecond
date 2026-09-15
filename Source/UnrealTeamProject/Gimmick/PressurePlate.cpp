@@ -1,49 +1,38 @@
-// Fill out your copyright notice in the Description page of Project Settings.
-
-
 #include "PressurePlate.h"
-#include "Components/BoxComponent.h"
 #include "Components/StaticMeshComponent.h"
-#include "PuzzleDoor.h"
+#include "Components/BoxComponent.h" // 부모의 TriggerBox를 사용하기 위해 포함
 
 APressurePlate::APressurePlate()
 {
-    PrimaryActorTick.bCanEverTick = false;
-
-    TriggerBox = CreateDefaultSubobject<UBoxComponent>(TEXT("TriggerBox"));
-    RootComponent = TriggerBox;
-
     PlateMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("PlateMesh"));
-    PlateMesh->SetupAttachment(RootComponent);
+    // 부모 클래스가 가지고 있는 TriggerBox를 찾아 그 아래에 메쉬를 붙여줍니다.
+    PlateMesh->SetupAttachment(TriggerBox);
 }
 
-void APressurePlate::BeginPlay()
+void APressurePlate::ActivateTrigger()
 {
-    Super::BeginPlay();
+    // 1. 부모의 기본 로직 (문 열기) 실행
+    Super::ActivateTrigger();
 
-    // 시작할 때 겹침 이벤트 함수 연결
-    TriggerBox->OnComponentBeginOverlap.AddDynamic(this, &APressurePlate::OnOverlapBegin);
-    TriggerBox->OnComponentEndOverlap.AddDynamic(this, &APressurePlate::OnOverlapEnd);
-}
+    // 2. 블루프린트에 만들어둔 이벤트 발생
+    OnPlateActivated.Broadcast();
 
-void APressurePlate::OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
-{
-    if (!OtherActor) return;
-
-    // 조건 없이 무조건 작동 신호 발송
-    if (TargetDoor)
+    if (GEngine)
     {
-        TargetDoor->OpenDoor();
+        GEngine->AddOnScreenDebugMessage(-1, 3.0f, FColor::Green, TEXT("Plate Push"));
     }
 }
 
-void APressurePlate::OnOverlapEnd(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex)
+void APressurePlate::DeactivateTrigger()
 {
-    if (!OtherActor) return;
+    // 1. 부모의 기본 로직 (문 닫기) 실행
+    Super::DeactivateTrigger();
 
-    // 에디터에서 스포이트로 찍어둔 문(TargetDoor)이 존재한다면 직접 닫아라!
-    if (TargetDoor)
+    // 2. 블루프린트에 만들어둔 이벤트 발생
+    OnPlateDeactivated.Broadcast();
+
+    if (GEngine)
     {
-        TargetDoor->CloseDoor();
+        GEngine->AddOnScreenDebugMessage(-1, 3.0f, FColor::Red, TEXT("Plate UP"));
     }
 }
