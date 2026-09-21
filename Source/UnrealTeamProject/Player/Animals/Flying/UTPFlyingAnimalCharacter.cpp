@@ -1,8 +1,10 @@
 #include "UTPFlyingAnimalCharacter.h"
 
+#include "../../Animation/UTPFlyingAnimalAnimInstance.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "EnhancedInputComponent.h"
+#include "Engine/World.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "InputAction.h"
 #include "UObject/ConstructorHelpers.h"
@@ -26,6 +28,7 @@ AUTPFlyingAnimalCharacter::AUTPFlyingAnimalCharacter()
 
 	// A released flying animal must remain where it landed.
 	bDisableMovementWhenUnpossessed = true;
+	AnimalAnimClass = UTPFlyingAnimalAnimInstance::StaticClass();
 
 	static ConstructorHelpers::FObjectFinder<USkeletalMesh> FlyingFoxMeshAsset(
 		TEXT("/Game/_Art/QuirkyMinimal/FlyingFox/Models/FlyingFox_LOD0.FlyingFox_LOD0"));
@@ -84,7 +87,9 @@ void AUTPFlyingAnimalCharacter::Tick(float DeltaSeconds)
 
 	if (UCharacterMovementComponent* Movement = GetCharacterMovement())
 	{
-		Movement->SetMovementMode(MOVE_Falling);
+		// Falling applies gravity every frame, which made the fox behave exactly
+		// like a normal jump. Flying lets this class own its vertical velocity.
+		Movement->SetMovementMode(MOVE_Flying);
 		Movement->Velocity = FMath::VInterpTo(
 			Movement->Velocity,
 			GetDesiredFlightVelocity(),
@@ -112,10 +117,20 @@ void AUTPFlyingAnimalCharacter::SetupPlayerInputComponent(UInputComponent* Playe
 
 void AUTPFlyingAnimalCharacter::Move(const FInputActionValue& Value)
 {
-	if (!IsSoulPossessed() || IsPossessionTransitionInputLocked() ||
-		FlightState == EUTPFlightState::Perched || FlightState == EUTPFlightState::Landing)
+	if (!IsSoulPossessed() || IsPossessionTransitionInputLocked())
 	{
 		LateralInput = 0.0f;
+		return;
+	}
+
+	// While perched (or after landing), the flying fox uses the standard
+	// character movement so it can walk to a takeoff point.  Previously these
+	// states discarded every move input, making a newly possessed fox appear
+	// completely unresponsive until a jump was pressed.
+	if (FlightState == EUTPFlightState::Perched || FlightState == EUTPFlightState::Landing)
+	{
+		LateralInput = 0.0f;
+		Super::Move(Value);
 		return;
 	}
 
@@ -262,13 +277,10 @@ void AUTPFlyingAnimalCharacter::StartTakeoff()
 	FlightState = EUTPFlightState::Takeoff;
 	if (UCharacterMovementComponent* Movement = GetCharacterMovement())
 	{
-		Movement->SetMovementMode(MOVE_Falling);
+		Movement->SetMovementMode(MOVE_Flying);
+		Movement->Velocity = GetActorForwardVector() * TakeoffSpeed +
+			FVector::UpVector * TakeoffSpeed;
 	}
-
-	LaunchCharacter(
-		GetActorForwardVector() * TakeoffSpeed + FVector::UpVector * TakeoffSpeed,
-		true,
-		true);
 
 	FlightState = bIsInsideWindZone ? EUTPFlightState::WindRide : EUTPFlightState::Glide;
 }
@@ -286,6 +298,25 @@ void AUTPFlyingAnimalCharacter::ActivateAnimalAbility()
 
 FVector AUTPFlyingAnimalCharacter::GetDesiredFlightVelocity() const
 {
+	const float SinkScale = bIsAbilityActive ? AbilitySinkMultiplier : 1.0f;
+	float DesiredVerticalVelocity = CurrentLiftStrength - GlideSinkSpeed * SinkScale;
+
+	// Keep the capsule a small distance above the floor. This allows a fox
+	// outside a wind zone to glide down, then hover instead of landing or
+	// repeatedly falling under gravity.
+	float GroundDistance = 0.0f;
+	if (TryGetGroundDistance(GroundDistance))
+	{
+		const float DesiredGroundDistance =
+			GetCapsuleComponent()->GetScaledCapsuleHalfHeight() + GroundHoverHeight;
+		const float HeightError = DesiredGroundDistance - GroundDistance;
+		const float HoverCorrection = FMath::Clamp(
+			HeightError * GroundHoverCorrectionStrength,
+			-GlideSinkSpeed * SinkScale,
+			GroundHoverRiseSpeed);
+		DesiredVerticalVelocity = FMath::Max(DesiredVerticalVelocity, HoverCorrection);
+	}
+
 	if (bIsInsideWindZone && !CurrentWindDirection.IsNearlyZero())
 	{
 		const FVector WindDirection = CurrentWindDirection.GetSafeNormal();
@@ -295,11 +326,9 @@ FVector AUTPFlyingAnimalCharacter::GetDesiredFlightVelocity() const
 			LateralDirection = GetActorRightVector().GetSafeNormal();
 		}
 
-		const float SinkScale = bIsAbilityActive ? AbilitySinkMultiplier : 1.0f;
 		return WindDirection * (CurrentWindSpeed > 0.0f ? CurrentWindSpeed : WindRideSpeed) +
 			LateralDirection * LateralInput * MaxLateralSpeed +
-			FVector::UpVector * CurrentLiftStrength -
-			FVector::UpVector * GlideSinkSpeed * SinkScale;
+			FVector::UpVector * DesiredVerticalVelocity;
 	}
 
 	const FVector CurrentHorizontalVelocity = FVector(GetVelocity().X, GetVelocity().Y, 0.0f);
@@ -309,10 +338,37 @@ FVector AUTPFlyingAnimalCharacter::GetDesiredFlightVelocity() const
 		LateralDirection = GetActorRightVector().GetSafeNormal();
 	}
 
-	const float SinkScale = bIsAbilityActive ? AbilitySinkMultiplier : 1.0f;
 	return CurrentHorizontalVelocity +
-		LateralDirection * LateralInput * MaxLateralSpeed -
-		FVector::UpVector * GlideSinkSpeed * SinkScale;
+		LateralDirection * LateralInput * MaxLateralSpeed +
+		FVector::UpVector * DesiredVerticalVelocity;
+}
+
+bool AUTPFlyingAnimalCharacter::TryGetGroundDistance(float& OutDistance) const
+{
+	const UWorld* World = GetWorld();
+	const UCapsuleComponent* Capsule = GetCapsuleComponent();
+	if (!World || !Capsule)
+	{
+		return false;
+	}
+
+	const FVector TraceStart = GetActorLocation();
+	const float TraceLength = Capsule->GetScaledCapsuleHalfHeight() +
+		GroundHoverHeight + GroundHoverTraceDistance;
+	FHitResult Hit;
+	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(FlyingAnimalGroundHover), false, this);
+	if (!World->LineTraceSingleByChannel(
+		Hit,
+		TraceStart,
+		TraceStart - FVector::UpVector * TraceLength,
+		ECC_Visibility,
+		QueryParams))
+	{
+		return false;
+	}
+
+	OutDistance = Hit.Distance;
+	return true;
 }
 
 bool AUTPFlyingAnimalCharacter::IsOnValidLandingSurface() const

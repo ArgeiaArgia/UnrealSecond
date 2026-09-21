@@ -66,6 +66,10 @@ public:
 	UFUNCTION(BlueprintPure, Category="Animal|Flying")
 	bool IsGliding() const;
 
+	/** True only while the temporary glide ability is active. */
+	UFUNCTION(BlueprintPure, Category="Animal|Flying")
+	bool IsFlightAbilityActive() const { return bIsAbilityActive; }
+
 	UFUNCTION(BlueprintPure, Category="Animal|Flying")
 	bool IsInsideWindZone() const { return bIsInsideWindZone; }
 
@@ -87,6 +91,19 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Animal|Flying", meta=(ClampMin="0.0"))
 	float GlideSinkSpeed = 220.0f;
+
+	/** Height kept above nearby ground while gliding without a wind current. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Animal|Flying|Hover", meta=(ClampMin="0.0"))
+	float GroundHoverHeight = 30.0f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Animal|Flying|Hover", meta=(ClampMin="0.0"))
+	float GroundHoverTraceDistance = 250.0f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Animal|Flying|Hover", meta=(ClampMin="0.0"))
+	float GroundHoverRiseSpeed = 180.0f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Animal|Flying|Hover", meta=(ClampMin="0.0"))
+	float GroundHoverCorrectionStrength = 6.0f;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Animal|Flying", meta=(ClampMin="0.0"))
 	float TakeoffSpeed = 350.0f;
@@ -128,6 +145,7 @@ protected:
 	bool bIsAbilityActive = false;
 
 	FVector GetDesiredFlightVelocity() const;
+	bool TryGetGroundDistance(float& OutDistance) const;
 	bool IsOnValidLandingSurface() const;
 	void BeginLanding();
 
