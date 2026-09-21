@@ -1,5 +1,8 @@
 #include "PuzzleTriggerBase.h"
 #include "Gimmick/PuzzleDoor.h" // 실제 문 헤더 파일명에 맞게 수정 필요
+#include "Gimmick/PuzzleMovingPlatform.h" // 실제 문 헤더 파일명에 맞게 수정 필요
+#include "Gimmick/PuzzleRotatingPlatform.h"
+#include "AreaForceVolume.h"
 #include "Components/BoxComponent.h"
 #include "GameFramework/Actor.h"
 
@@ -52,17 +55,63 @@ void APuzzleTriggerBase::OnOverlapEnd(UPrimitiveComponent* OverlappedComp, AActo
 
 void APuzzleTriggerBase::ActivateTrigger()
 {
-    if (TargetDoor)
+    // 배열에 등록된 모든 문 열기
+    for (APuzzleDoor* Door : TargetDoors)
     {
-        TargetDoor->OpenDoor();
+        if (Door)
+        {
+            Door->OpenDoor();
+        }
+    }
+
+    // 배열에 등록된 모든 이동 다리 작동
+    for (APuzzleMovingPlatform* Platform : TargetPlatforms)
+    {
+        if (Platform)
+        {
+            Platform->ActivatePlatform();
+        }
+    }
+
+    for (APuzzleRotatingPlatform* Rotator : TargetRotators)
+    {
+        if (Rotator) Rotator->ActivatePlatform();
+    }
+
+    for (AAreaForceVolume* Wind : TargetWindAreas)
+    {
+        if (Wind) Wind->ActivateWind();
     }
 }
 
 void APuzzleTriggerBase::DeactivateTrigger()
 {
-    if (TargetDoor)
+    // 배열에 등록된 모든 문 닫기
+    for (APuzzleDoor* Door : TargetDoors)
     {
-        TargetDoor->CloseDoor();
+        if (Door)
+        {
+            Door->CloseDoor();
+        }
+    }
+
+    // 배열에 등록된 모든 이동 다리 복귀
+    for (APuzzleMovingPlatform* Platform : TargetPlatforms)
+    {
+        if (Platform)
+        {
+            Platform->DeactivatePlatform();
+        }
+    }
+
+    for (APuzzleRotatingPlatform* Rotator : TargetRotators)
+    {
+        if (Rotator) Rotator->DeactivatePlatform();
+    }
+
+    for (APuzzleRotatingPlatform* Rotator : TargetRotators)
+    {
+        if (Rotator) Rotator->DeactivatePlatform();
     }
 }
 

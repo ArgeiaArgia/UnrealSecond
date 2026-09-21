@@ -8,18 +8,17 @@
 
 class UBoxComponent;
 class APuzzleDoor;
+class APuzzleMovingPlatform; // 이동 다리 클래스 전방 선언 추가
+class APuzzleRotatingPlatform; // 이동 다리 클래스 전방 선언 추가
+class AAreaForceVolume; // 이동 다리 클래스 전방 선언 추가
 
 UCLASS()
 class UNREALTEAMPROJECT_API APuzzleTriggerBase : public AActor
 {
-	GENERATED_BODY()
-	
+    GENERATED_BODY()
+
 public:
     APuzzleTriggerBase();
-
-    // 에디터에서 스포이트로 지정할 대상 문
-    UPROPERTY(EditAnywhere, Category = "Puzzle")
-    APuzzleDoor* TargetDoor;
 
     // 트리거를 작동시킬 수 있는 특정 액터 태그 (비워두면 모두 허용)
     UPROPERTY(EditAnywhere, Category = "Puzzle")
@@ -31,6 +30,18 @@ public:
 protected:
     UPROPERTY(VisibleAnywhere, Category = "Components")
     UBoxComponent* TriggerBox;
+
+    UPROPERTY(EditAnywhere, Category = "Puzzle Link")
+    TArray<APuzzleDoor*> TargetDoors;
+
+    UPROPERTY(EditAnywhere, Category = "Puzzle Link")
+    TArray<APuzzleMovingPlatform*> TargetPlatforms;
+
+    UPROPERTY(EditAnywhere, Category = "Puzzle Link")
+    TArray<APuzzleRotatingPlatform*> TargetRotators;
+
+    UPROPERTY(EditAnywhere, Category = "Puzzle Link")
+    TArray<AAreaForceVolume*> TargetWindAreas;
 
     // 트리거 영역 안에 있는 유효한 액터 수
     int32 ValidOverlappingCount;

@@ -1,5 +1,3 @@
-// Fill out your copyright notice in the Description page of Project Settings.
-
 #pragma once
 
 #include "CoreMinimal.h"
@@ -17,17 +15,33 @@ public:
     AAreaForceVolume();
     virtual void Tick(float DeltaTime) override;
 
-    // 밀어낼 방향 (월드 좌표 기준)
+    // 트리거(발판/스위치)에서 호출할 On/Off 함수
+    UFUNCTION(BlueprintCallable, Category = "Puzzle Wind")
+    void ActivateWind();
+
+    UFUNCTION(BlueprintCallable, Category = "Puzzle Wind")
+    void DeactivateWind();
+
+    // 방 초기화 매니저용 강제 리셋
+    UFUNCTION(BlueprintCallable, Category = "Puzzle Wind")
+    void ForceResetWind();
+
     UPROPERTY(EditAnywhere, Category = "Force Settings")
     FVector PushDirection;
 
-    // 밀어내는 힘의 세기
     UPROPERTY(EditAnywhere, Category = "Force Settings")
     float PushStrength;
 
-    // 영향을 받을 액터의 태그 (비워두면 모두 밀어냄)
     UPROPERTY(EditAnywhere, Category = "Force Settings")
     FName TargetTag;
+
+    // 새롭게 추가: 영향을 받지 않고 무시할 액터 태그 (예: Turtle)
+    UPROPERTY(EditAnywhere, Category = "Force Settings")
+    FName IgnoreTag;
+
+    // 게임 시작 시 바람이 켜져 있을지 여부
+    UPROPERTY(EditAnywhere, Category = "Force Settings")
+    bool bStartActive;
 
 protected:
     virtual void BeginPlay() override;
@@ -42,7 +56,8 @@ protected:
     void OnOverlapEnd(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex);
 
 private:
-    // 영역 안에 들어와 있는 유효한 액터들을 기억하는 배열
     UPROPERTY()
     TSet<AActor*> AffectedActors;
+
+    bool bIsActive;
 };
