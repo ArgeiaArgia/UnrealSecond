@@ -1,7 +1,10 @@
 #include "PuzzleTriggerBase.h"
 
+#include "AreaForceVolume.h"
+#include "Gimmick/PuzzleDoor.h"
+#include "Gimmick/PuzzleMovingPlatform.h"
+#include "Gimmick/PuzzleRotatingPlatform.h"
 #include "Components/BoxComponent.h"
-#include "GameFramework/Actor.h"
 #include "TPToggleableInterface.h"
 
 APuzzleTriggerBase::APuzzleTriggerBase()
@@ -75,17 +78,95 @@ void APuzzleTriggerBase::RefreshTriggerState()
 
 void APuzzleTriggerBase::ActivateTrigger()
 {
-    if (IsValid(TargetDoor) && TargetDoor->GetClass()->ImplementsInterface(UTPToggleableInterface::StaticClass()))
+    TSet<AActor*> HandledTargets;
+
+    for (APuzzleDoor* Door : TargetDoors)
     {
-        ITPToggleableInterface::Execute_SetToggleableEnabled(TargetDoor, true);
+        if (IsValid(Door))
+        {
+            Door->OpenDoor();
+            HandledTargets.Add(Door);
+        }
+    }
+
+    for (APuzzleMovingPlatform* Platform : TargetPlatforms)
+    {
+        if (IsValid(Platform))
+        {
+            Platform->ActivatePlatform();
+            HandledTargets.Add(Platform);
+        }
+    }
+
+    for (APuzzleRotatingPlatform* Rotator : TargetRotators)
+    {
+        if (IsValid(Rotator))
+        {
+            Rotator->ActivatePlatform();
+            HandledTargets.Add(Rotator);
+        }
+    }
+
+    for (AAreaForceVolume* Wind : TargetWindAreas)
+    {
+        if (IsValid(Wind))
+        {
+            Wind->ActivateWind();
+            HandledTargets.Add(Wind);
+        }
+    }
+
+    AActor* GenericTarget = TargetDoor.Get();
+    if (IsValid(GenericTarget) && !HandledTargets.Contains(GenericTarget) && GenericTarget->GetClass()->ImplementsInterface(UTPToggleableInterface::StaticClass()))
+    {
+        ITPToggleableInterface::Execute_SetToggleableEnabled(GenericTarget, true);
     }
 }
 
 void APuzzleTriggerBase::DeactivateTrigger()
 {
-    if (IsValid(TargetDoor) && TargetDoor->GetClass()->ImplementsInterface(UTPToggleableInterface::StaticClass()))
+    TSet<AActor*> HandledTargets;
+
+    for (APuzzleDoor* Door : TargetDoors)
     {
-        ITPToggleableInterface::Execute_SetToggleableEnabled(TargetDoor, false);
+        if (IsValid(Door))
+        {
+            Door->CloseDoor();
+            HandledTargets.Add(Door);
+        }
+    }
+
+    for (APuzzleMovingPlatform* Platform : TargetPlatforms)
+    {
+        if (IsValid(Platform))
+        {
+            Platform->DeactivatePlatform();
+            HandledTargets.Add(Platform);
+        }
+    }
+
+    for (APuzzleRotatingPlatform* Rotator : TargetRotators)
+    {
+        if (IsValid(Rotator))
+        {
+            Rotator->DeactivatePlatform();
+            HandledTargets.Add(Rotator);
+        }
+    }
+
+    for (AAreaForceVolume* Wind : TargetWindAreas)
+    {
+        if (IsValid(Wind))
+        {
+            Wind->DeactivateWind();
+            HandledTargets.Add(Wind);
+        }
+    }
+
+    AActor* GenericTarget = TargetDoor.Get();
+    if (IsValid(GenericTarget) && !HandledTargets.Contains(GenericTarget) && GenericTarget->GetClass()->ImplementsInterface(UTPToggleableInterface::StaticClass()))
+    {
+        ITPToggleableInterface::Execute_SetToggleableEnabled(GenericTarget, false);
     }
 }
 

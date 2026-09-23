@@ -5,6 +5,10 @@
 #include "PuzzleTriggerBase.generated.h"
 
 class UBoxComponent;
+class APuzzleDoor;
+class APuzzleMovingPlatform;
+class APuzzleRotatingPlatform;
+class AAreaForceVolume;
 
 UCLASS()
 class UNREALTEAMPROJECT_API APuzzleTriggerBase : public AActor
@@ -13,10 +17,9 @@ class UNREALTEAMPROJECT_API APuzzleTriggerBase : public AActor
 
 public:
     APuzzleTriggerBase();
-
     virtual void Tick(float DeltaSeconds) override;
 
-    // Existing door references remain valid, while any Toggleable actor can now be assigned.
+    // Retained for already-authored levels and for any actor implementing the toggle interface.
     UPROPERTY(EditAnywhere, Category = "Puzzle", meta = (MustImplement = "/Script/UnrealTeamProject.TPToggleableInterface"))
     TObjectPtr<AActor> TargetDoor;
 
@@ -29,9 +32,21 @@ protected:
     UPROPERTY(VisibleAnywhere, Category = "Components")
     UBoxComponent* TriggerBox;
 
+    // Typed arrays are retained for the main-side multi-target puzzle workflow.
+    UPROPERTY(EditAnywhere, Category = "Puzzle Link")
+    TArray<APuzzleDoor*> TargetDoors;
+
+    UPROPERTY(EditAnywhere, Category = "Puzzle Link")
+    TArray<APuzzleMovingPlatform*> TargetPlatforms;
+
+    UPROPERTY(EditAnywhere, Category = "Puzzle Link")
+    TArray<APuzzleRotatingPlatform*> TargetRotators;
+
+    UPROPERTY(EditAnywhere, Category = "Puzzle Link")
+    TArray<AAreaForceVolume*> TargetWindAreas;
+
     int32 ValidOverlappingCount;
 
-    // Rebuilds activation from the actual overlap set when an overlap event is missed.
     void RefreshTriggerState();
 
     UFUNCTION()

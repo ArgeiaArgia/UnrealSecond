@@ -1,5 +1,3 @@
-// Fill out your copyright notice in the Description page of Project Settings.
-
 #pragma once
 
 #include "CoreMinimal.h"
@@ -18,23 +16,39 @@ public:
     AAreaForceVolume();
     virtual void Tick(float DeltaTime) override;
 
+    // Generic puzzle-controller API retained for existing actors and Blueprints.
     virtual void SetToggleableEnabled_Implementation(bool bInEnabled) override;
     virtual bool IsToggleableEnabled_Implementation() const override;
 
-    // �о ���� (���� ��ǥ ����)
+    // Wind-specific API retained for existing trigger and Blueprint references.
+    UFUNCTION(BlueprintCallable, Category = "Puzzle Wind")
+    void ActivateWind();
+
+    UFUNCTION(BlueprintCallable, Category = "Puzzle Wind")
+    void DeactivateWind();
+
+    UFUNCTION(BlueprintCallable, Category = "Puzzle Wind")
+    void ForceResetWind();
+
     UPROPERTY(EditAnywhere, Category = "Force Settings")
     FVector PushDirection;
 
-    // �о�� ���� ����
     UPROPERTY(EditAnywhere, Category = "Force Settings")
     float PushStrength;
 
-    // ������ ���� ������ �±� (����θ� ��� �о)
     UPROPERTY(EditAnywhere, Category = "Force Settings")
     FName TargetTag;
 
+    UPROPERTY(EditAnywhere, Category = "Force Settings")
+    FName IgnoreTag;
+
+    // Preserves the generic toggle state used by the GH-side puzzle system.
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Force Settings")
     bool bEnabled = true;
+
+    // Preserves the wind area's initial state used by the main-side puzzle system.
+    UPROPERTY(EditAnywhere, Category = "Force Settings")
+    bool bStartActive = true;
 
 protected:
     virtual void BeginPlay() override;
@@ -49,7 +63,9 @@ protected:
     void OnOverlapEnd(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex);
 
 private:
-    // ���� �ȿ� ���� �ִ� ��ȿ�� ���͵��� ����ϴ� �迭
     UPROPERTY()
     TSet<AActor*> AffectedActors;
+
+    // Kept in sync with bEnabled by both public activation APIs.
+    bool bIsActive = true;
 };

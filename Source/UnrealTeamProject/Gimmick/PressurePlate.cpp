@@ -1,6 +1,7 @@
 #include "PressurePlate.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/BoxComponent.h" // 부모의 TriggerBox를 사용하기 위해 포함
+#include "PuzzleMovingPlatform.h"
 
 APressurePlate::APressurePlate()
 {
@@ -11,28 +12,17 @@ APressurePlate::APressurePlate()
 
 void APressurePlate::ActivateTrigger()
 {
-    // 1. 부모의 기본 로직 (문 열기) 실행
+    // 부모 클래스(PuzzleTriggerBase)의 문 열기 & 다리 이동 배열 작동 로직을 호출
     Super::ActivateTrigger();
 
-    // 2. 블루프린트에 만들어둔 이벤트 발생
+    // 블루프린트용 이벤트 (필요하다면 유지)
     OnPlateActivated.Broadcast();
-
-    if (GEngine)
-    {
-        GEngine->AddOnScreenDebugMessage(-1, 3.0f, FColor::Green, TEXT("Plate Push"));
-    }
 }
 
 void APressurePlate::DeactivateTrigger()
 {
-    // 1. 부모의 기본 로직 (문 닫기) 실행
+    // 부모 클래스의 문 닫기 & 다리 복귀 로직 호출
     Super::DeactivateTrigger();
 
-    // 2. 블루프린트에 만들어둔 이벤트 발생
     OnPlateDeactivated.Broadcast();
-
-    if (GEngine)
-    {
-        GEngine->AddOnScreenDebugMessage(-1, 3.0f, FColor::Red, TEXT("Plate UP"));
-    }
 }

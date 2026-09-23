@@ -9,6 +9,7 @@
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnPlateStateChanged);
 
 class APuzzleDoor;
+class APuzzleMovingPlatform;
 
 UCLASS()
 class UNREALTEAMPROJECT_API APressurePlate : public APuzzleTriggerBase
@@ -35,4 +36,5 @@ protected:
     // 부모의 함수를 덮어씌워서 발판만의 기능(이벤트 발생, 연출)을 추가합니다.
     virtual void ActivateTrigger() override;
     virtual void DeactivateTrigger() override;
+
 };
