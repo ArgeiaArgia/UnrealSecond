@@ -144,7 +144,7 @@ bool UTPPossessionComponent::TryPossessTarget(AActor* TargetActor)
 	}
 
 	APawn* CurrentPawn = GetCurrentControlledPawn();
-	if (!CurrentPawn || CurrentPawn != SoulPawn.Get())
+	if (!CurrentPawn)
 	{
 		return false;
 	}
@@ -165,7 +165,20 @@ bool UTPPossessionComponent::TryPossessTarget(AActor* TargetActor)
 		return false;
 	}
 
-	return BeginPossessionTransition(TargetPawn);
+	if (CurrentPawn == SoulPawn.Get())
+	{
+		return BeginPossessionTransition(TargetPawn);
+	}
+
+	// The player may move directly between possessable bodies. There is no Soul
+	// pawn to animate in this path, so transfer control after the same interface
+	// validation used by a normal Soul-to-body possession.
+	if (!CurrentPawn->GetClass()->ImplementsInterface(UTPPossessableInterface::StaticClass()))
+	{
+		return false;
+	}
+
+	return PossessFromCurrentBody(CurrentPawn, TargetPawn);
 }
 
 bool UTPPossessionComponent::TogglePossession()
@@ -331,6 +344,34 @@ bool UTPPossessionComponent::PossessPawn(APawn* NewPawn)
 	return bPossessed;
 }
 
+bool UTPPossessionComponent::PossessFromCurrentBody(APawn* PreviousBody, APawn* TargetPawn)
+{
+	if (!IsValid(PreviousBody) || !IsValid(TargetPawn) || PreviousBody == TargetPawn ||
+		bPossessionTransitionInProgress)
+	{
+		return false;
+	}
+
+	if (!PossessPawn(TargetPawn))
+	{
+		return false;
+	}
+
+	// PossessPawn temporarily suppresses controller callbacks while it changes
+	// the pawn. Notify both bodies explicitly once the transfer has succeeded.
+	if (PreviousBody->GetClass()->ImplementsInterface(UTPPossessableInterface::StaticClass()))
+	{
+		ITPPossessableInterface::Execute_OnReleasedFromSoul(PreviousBody, SoulPawn.Get());
+	}
+
+	if (TargetPawn->GetClass()->ImplementsInterface(UTPPossessableInterface::StaticClass()))
+	{
+		ITPPossessableInterface::Execute_OnPossessedBySoul(TargetPawn, SoulPawn.Get());
+	}
+
+	return true;
+}
+
 AUTPSoulPawn* UTPPossessionComponent::SpawnSoulPawn(const FTransform& SpawnTransform)
 {
 	UWorld* World = GetWorld();
@@ -371,7 +412,11 @@ bool UTPPossessionComponent::BeginPossessionTransition(APawn* TargetPawn)
 
 	PlayerController->SetIgnoreMoveInput(true);
 	PlayerController->SetIgnoreLookInput(true);
-	CurrentSoulPawn->BeginPossessionVanish(PossessionTransitionSeconds);
+	// The overlap begins on the outside of a body. Aim at its bounds center so
+	// the fade visually reads as the soul entering that body instead of simply
+	// disappearing at the contact point.
+	const FVector PossessionDestination = TargetPawn->GetComponentsBoundingBox(true).GetCenter();
+	CurrentSoulPawn->BeginPossessionVanish(PossessionDestination, PossessionTransitionSeconds);
 	PlayerController->BeginPossessionCameraTransition(TargetPawn, PossessionTransitionSeconds);
 
 	if (RemainingPossessionTransitionTime <= 0.0f)

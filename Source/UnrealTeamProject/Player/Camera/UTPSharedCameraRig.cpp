@@ -6,6 +6,13 @@
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/SpringArmComponent.h"
 
+namespace
+{
+	constexpr float DefaultCameraPitchDegrees = -60.0f;
+	constexpr float MinimumCameraPitchDegrees = -80.0f;
+	constexpr float MaximumCameraPitchDegrees = -35.0f;
+}
+
 AUTPSharedCameraRig::AUTPSharedCameraRig()
 {
 	PrimaryActorTick.bCanEverTick = true;
@@ -32,6 +39,13 @@ AUTPSharedCameraRig::AUTPSharedCameraRig()
 void AUTPSharedCameraRig::Initialize(APlayerController* InOwningPlayerController)
 {
 	OwningPlayerController = InOwningPlayerController;
+
+	// The shared camera starts above the character and stays within its
+	// overhead viewing range while the player looks around.
+	const float InitialYaw = InOwningPlayerController
+		? InOwningPlayerController->GetControlRotation().Yaw
+		: GetActorRotation().Yaw;
+	SetActorRotation(FRotator(DefaultCameraPitchDegrees, InitialYaw, 0.0f));
 }
 
 void AUTPSharedCameraRig::SetFollowTarget(APawn* InFollowTarget, bool bSnapToTarget)
@@ -100,9 +114,13 @@ void AUTPSharedCameraRig::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 
-	const FRotator TargetRotation = OwningPlayerController.IsValid()
+	const FRotator ControlRotation = OwningPlayerController.IsValid()
 		? OwningPlayerController->GetControlRotation()
 		: GetActorRotation();
+	const FRotator TargetRotation(
+		FMath::Clamp(ControlRotation.Pitch, MinimumCameraPitchDegrees, MaximumCameraPitchDegrees),
+		ControlRotation.Yaw,
+		0.0f);
 
 	SpringArmComponent->bEnableCameraLag = bEnableFollowLag;
 	SpringArmComponent->CameraLagSpeed = FollowLagSpeed;

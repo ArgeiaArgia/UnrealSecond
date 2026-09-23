@@ -1,6 +1,6 @@
 #include "PuzzleRoomManager.h"
 #include "PuzzleTriggerBase.h"
-#include "Gimmick/PuzzleDoor.h"
+#include "TPToggleableInterface.h"
 
 APuzzleRoomManager::APuzzleRoomManager()
 {
@@ -11,7 +11,7 @@ void APuzzleRoomManager::BeginPlay()
 {
     Super::BeginPlay();
 
-    // °ÔÀÓ ½ÃÀÛ ½Ã, ¹è¿­¿¡ µî·ÏµÈ ¸ðµç ¾×ÅÍÀÇ 'ÃÖÃÊ À§Ä¡(Transform)'¸¦ ÀúÀåÇÕ´Ï´Ù.
+    // ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½, ï¿½è¿­ï¿½ï¿½ ï¿½ï¿½Ïµï¿½ ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ 'ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Ä¡(Transform)'ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Õ´Ï´ï¿½.
     for (AActor* Actor : ResettableActors)
     {
         if (Actor)
@@ -27,7 +27,7 @@ void APuzzleRoomManager::ResetRoom()
     {
         if (!Actor) continue;
 
-        // 1. ¹°¸®·ÂÀÌ Àû¿ë ÁßÀÎ »óÀÚ(Å¥ºê)¶ó¸é, ³¯¾Æ°¡´ø °¡¼Óµµ(Velocity)¸¦ 0À¸·Î °­Á¦ Á¤Áö½ÃÅµ´Ï´Ù.
+        // 1. ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½(Å¥ï¿½ï¿½)ï¿½ï¿½ï¿½, ï¿½ï¿½ï¿½Æ°ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Óµï¿½(Velocity)ï¿½ï¿½ 0ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Åµï¿½Ï´ï¿½.
         if (UPrimitiveComponent* RootPrim = Cast<UPrimitiveComponent>(Actor->GetRootComponent()))
         {
             if (RootPrim->IsSimulatingPhysics())
@@ -37,27 +37,27 @@ void APuzzleRoomManager::ResetRoom()
             }
         }
 
-        // 2. À§Ä¡ ÃÊ±âÈ­ (ÀúÀåÇØµÐ ¿ø·¡ ÀÚ¸®·Î ¼ø°£ÀÌµ¿)
+        // 2. ï¿½ï¿½Ä¡ ï¿½Ê±ï¿½È­ (ï¿½ï¿½ï¿½ï¿½ï¿½Øµï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ú¸ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ìµï¿½)
         if (InitialTransforms.Contains(Actor))
         {
             Actor->SetActorTransform(InitialTransforms[Actor]);
         }
 
-        // 3. ¸¸¾à ÀÌ ¾×ÅÍ°¡ ¹ßÆÇÀÌ³ª ½ºÀ§Ä¡¶ó¸é? -> °­Á¦·Î ²ü´Ï´Ù.
+        // 3. ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½Í°ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ì³ï¿½ ï¿½ï¿½ï¿½ï¿½Ä¡ï¿½ï¿½ï¿½? -> ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Ï´ï¿½.
         if (APuzzleTriggerBase* Trigger = Cast<APuzzleTriggerBase>(Actor))
         {
             Trigger->ForceReset();
         }
 
-        // 4. ¸¸¾à ÀÌ ¾×ÅÍ°¡ ¹®ÀÌ¶ó¸é? -> °­Á¦·Î ´Ý½À´Ï´Ù.
-        if (APuzzleDoor* Door = Cast<APuzzleDoor>(Actor))
+        // 4. Any on/off puzzle actor returns to its off state.
+        if (Actor->GetClass()->ImplementsInterface(UTPToggleableInterface::StaticClass()))
         {
-            Door->CloseDoor();
+            ITPToggleableInterface::Execute_SetToggleableEnabled(Actor, false);
         }
     }
 
     if (GEngine)
     {
-        GEngine->AddOnScreenDebugMessage(-1, 3.0f, FColor::Magenta, TEXT("¹æÀÌ ÃÊ±âÈ­µÇ¾ú½À´Ï´Ù!"));
+        GEngine->AddOnScreenDebugMessage(-1, 3.0f, FColor::Magenta, TEXT("ï¿½ï¿½ï¿½ï¿½ ï¿½Ê±ï¿½È­ï¿½Ç¾ï¿½ï¿½ï¿½ï¿½Ï´ï¿½!"));
     }
 }

@@ -1,74 +1,96 @@
 #include "PuzzleTriggerBase.h"
-#include "Gimmick/PuzzleDoor.h" // 실제 문 헤더 파일명에 맞게 수정 필요
+
 #include "Components/BoxComponent.h"
 #include "GameFramework/Actor.h"
+#include "TPToggleableInterface.h"
 
 APuzzleTriggerBase::APuzzleTriggerBase()
 {
-    PrimaryActorTick.bCanEverTick = false;
+    PrimaryActorTick.bCanEverTick = true;
     ValidOverlappingCount = 0;
 
     TriggerBox = CreateDefaultSubobject<UBoxComponent>(TEXT("TriggerBox"));
     RootComponent = TriggerBox;
-
-    // 겹침 판정을 위해 동적 오브젝트와 모두 겹치도록 설정
     TriggerBox->SetCollisionProfileName(TEXT("OverlapAllDynamic"));
 
     TriggerBox->OnComponentBeginOverlap.AddDynamic(this, &APuzzleTriggerBase::OnOverlapBegin);
     TriggerBox->OnComponentEndOverlap.AddDynamic(this, &APuzzleTriggerBase::OnOverlapEnd);
 }
 
+void APuzzleTriggerBase::Tick(float DeltaSeconds)
+{
+    Super::Tick(DeltaSeconds);
+    RefreshTriggerState();
+}
+
 void APuzzleTriggerBase::OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
 {
-    if (!OtherActor || OtherActor == this) return;
-
-    // RequiredTag가 설정되어 있는데 대상이 해당 태그를 갖지 않으면 무시
-    if (!RequiredTag.IsNone() && !OtherActor->ActorHasTag(RequiredTag)) return;
-
-    ValidOverlappingCount++;
-
-    // 유효한 첫 번째 액터가 들어올 때 문 개방
-    if (ValidOverlappingCount == 1)
-    {
-        ActivateTrigger();
-    }
+    RefreshTriggerState();
 }
 
 void APuzzleTriggerBase::OnOverlapEnd(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex)
 {
-    if (!OtherActor || OtherActor == this) return;
+    RefreshTriggerState();
+}
 
-    if (!RequiredTag.IsNone() && !OtherActor->ActorHasTag(RequiredTag)) return;
-
-    ValidOverlappingCount--;
-
-    // 유효한 액터가 모두 나갔을 때 문 폐쇄
-    if (ValidOverlappingCount <= 0)
+void APuzzleTriggerBase::RefreshTriggerState()
+{
+    if (!TriggerBox)
     {
-        ValidOverlappingCount = 0; // 음수 방지 안전장치
+        return;
+    }
+
+    TArray<AActor*> OverlappingActors;
+    TriggerBox->GetOverlappingActors(OverlappingActors);
+
+    int32 NewValidOverlappingCount = 0;
+    for (AActor* OtherActor : OverlappingActors)
+    {
+        if (!IsValid(OtherActor) || OtherActor == this)
+        {
+            continue;
+        }
+
+        if (!RequiredTag.IsNone() && !OtherActor->ActorHasTag(RequiredTag))
+        {
+            continue;
+        }
+
+        ++NewValidOverlappingCount;
+    }
+
+    const bool bWasActivated = ValidOverlappingCount > 0;
+    const bool bShouldActivate = NewValidOverlappingCount > 0;
+    ValidOverlappingCount = NewValidOverlappingCount;
+
+    if (!bWasActivated && bShouldActivate)
+    {
+        ActivateTrigger();
+    }
+    else if (bWasActivated && !bShouldActivate)
+    {
         DeactivateTrigger();
     }
 }
 
 void APuzzleTriggerBase::ActivateTrigger()
 {
-    if (TargetDoor)
+    if (IsValid(TargetDoor) && TargetDoor->GetClass()->ImplementsInterface(UTPToggleableInterface::StaticClass()))
     {
-        TargetDoor->OpenDoor();
+        ITPToggleableInterface::Execute_SetToggleableEnabled(TargetDoor, true);
     }
 }
 
 void APuzzleTriggerBase::DeactivateTrigger()
 {
-    if (TargetDoor)
+    if (IsValid(TargetDoor) && TargetDoor->GetClass()->ImplementsInterface(UTPToggleableInterface::StaticClass()))
     {
-        TargetDoor->CloseDoor();
+        ITPToggleableInterface::Execute_SetToggleableEnabled(TargetDoor, false);
     }
 }
 
 void APuzzleTriggerBase::ForceReset()
 {
-    // 방 초기화 시 카운트를 0으로 되돌리고 문을 닫음
     ValidOverlappingCount = 0;
     DeactivateTrigger();
 }

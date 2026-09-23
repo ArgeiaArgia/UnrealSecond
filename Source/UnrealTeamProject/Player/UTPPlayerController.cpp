@@ -4,6 +4,8 @@
 #include "Components/UTPPossessionComponent.h"
 #include "UTPSoulPawn.h"
 
+#include "Camera/PlayerCameraManager.h"
+#include "CollisionShape.h"
 #include "Engine/World.h"
 #include "GameFramework/Pawn.h"
 #include "EnhancedInputComponent.h"
@@ -11,6 +13,7 @@
 #include "InputModifiers.h"
 #include "InputAction.h"
 #include "InputMappingContext.h"
+#include "UTPPossessableInterface.h"
 #include "UObject/UObjectGlobals.h"
 #include "UObject/ConstructorHelpers.h"
 
@@ -45,6 +48,14 @@ void AUTPPlayerController::BeginPlay()
 {
 	Super::BeginPlay();
 
+	// Start from an overhead angle and keep vertical look within this range.
+	SetControlRotation(FRotator(-60.0f, GetControlRotation().Yaw, 0.0f));
+	if (PlayerCameraManager)
+	{
+		PlayerCameraManager->ViewPitchMin = -80.0f;
+		PlayerCameraManager->ViewPitchMax = -35.0f;
+	}
+
 	if (UWorld* World = GetWorld())
 	{
 		SharedCameraRig = World->SpawnActor<AUTPSharedCameraRig>(AUTPSharedCameraRig::StaticClass());
@@ -76,6 +87,12 @@ void AUTPPlayerController::BeginPlay()
 	}
 }
 
+void AUTPPlayerController::PlayerTick(float DeltaTime)
+{
+	Super::PlayerTick(DeltaTime);
+	UpdatePossessionAim(DeltaTime);
+}
+
 void AUTPPlayerController::SetupInputComponent()
 {
 	Super::SetupInputComponent();
@@ -95,6 +112,10 @@ void AUTPPlayerController::SetupInputComponent()
 	{
 		EnhancedInputComponent->BindAction(PossessTargetAction, ETriggerEvent::Started,
 			this, &AUTPPlayerController::HandlePossessionPressed);
+		EnhancedInputComponent->BindAction(PossessTargetAction, ETriggerEvent::Completed,
+			this, &AUTPPlayerController::HandlePossessionReleased);
+		EnhancedInputComponent->BindAction(PossessTargetAction, ETriggerEvent::Canceled,
+			this, &AUTPPlayerController::HandlePossessionReleased);
 	}
 
 	if (LookAction)
@@ -177,13 +198,44 @@ void AUTPPlayerController::HandlePossessionPressed()
 		return;
 	}
 
-	if (AUTPSoulPawn* SoulPawn = Cast<AUTPSoulPawn>(GetPawn()))
+	APawn* CurrentPawn = GetPawn();
+	if (CurrentPawn && (Cast<AUTPSoulPawn>(CurrentPawn) ||
+		CurrentPawn->GetClass()->ImplementsInterface(UTPPossessableInterface::StaticClass())))
 	{
-		SoulPawn->RequestPossessFocusedTarget();
+		// Hold right mouse to keep the camera trained on the currently valid,
+		// camera-facing target. Possession itself only happens on release.
+		bPossessionAimActive = true;
+		PossessionAimTarget = FindPossessionAimTarget();
+		UpdatePossessionAim(0.0f);
 		return;
 	}
 
 	TogglePossession();
+}
+
+void AUTPPlayerController::HandlePossessionReleased()
+{
+	if (!bPossessionAimActive)
+	{
+		return;
+	}
+
+	bPossessionAimActive = false;
+	PossessionAimTarget = nullptr;
+
+	// Re-query at release so the target must still be visible and inside the
+	// configured possession range. With no target, retain the prior behavior of
+	// returning the currently controlled animal to Soul form.
+	if (AActor* TargetActor = FindPossessionAimTarget())
+	{
+		TryPossessTarget(TargetActor);
+		return;
+	}
+
+	if (!Cast<AUTPSoulPawn>(GetPawn()))
+	{
+		TogglePossession();
+	}
 }
 
 void AUTPPlayerController::HandleLook(const FInputActionValue& Value)
@@ -203,6 +255,131 @@ void AUTPPlayerController::HandleLook(const FInputActionValue& Value)
 	AddPitchInput(LookValue.Y);
 }
 
+void AUTPPlayerController::UpdatePossessionAim(float DeltaTime)
+{
+	if (!bPossessionAimActive)
+	{
+		return;
+	}
+
+	APawn* CurrentPawn = GetPawn();
+	const bool bCanAimFromCurrentPawn = CurrentPawn &&
+		(Cast<AUTPSoulPawn>(CurrentPawn) ||
+			CurrentPawn->GetClass()->ImplementsInterface(UTPPossessableInterface::StaticClass()));
+	if (!bCanAimFromCurrentPawn ||
+		(PossessionComponent && PossessionComponent->IsPossessionTransitionInProgress()))
+	{
+		bPossessionAimActive = false;
+		PossessionAimTarget = nullptr;
+		return;
+	}
+
+	// Acquire one target per hold. Continuously replacing it while the control
+	// rotation moves causes the camera to wobble between nearby characters.
+	// A destroyed target can still be replaced on the next frame.
+	if (!PossessionAimTarget.IsValid())
+	{
+		PossessionAimTarget = FindPossessionAimTarget();
+	}
+	AActor* TargetActor = PossessionAimTarget.Get();
+	if (!IsValid(TargetActor))
+	{
+		return;
+	}
+
+	FVector ViewLocation;
+	FRotator ViewRotation;
+	GetPlayerViewPoint(ViewLocation, ViewRotation);
+	const FVector TargetLocation = TargetActor->GetComponentsBoundingBox(true).GetCenter();
+	if (TargetLocation.Equals(ViewLocation))
+	{
+		return;
+	}
+
+	FRotator DesiredRotation = GetControlRotation();
+	// This is an overhead camera. Retaining its pitch prevents the view from
+	// dipping or rising abruptly just because targets differ in height; only
+	// rotate around the player so the locked character stays in front.
+	DesiredRotation.Yaw = (TargetLocation - ViewLocation).Rotation().Yaw;
+	DesiredRotation.Roll = 0.0f;
+
+	const FRotator NewRotation = FMath::RInterpTo(
+		GetControlRotation(),
+		DesiredRotation,
+		DeltaTime,
+		PossessionAimRotationInterpSpeed);
+	SetControlRotation(NewRotation);
+}
+
+AActor* AUTPPlayerController::FindPossessionAimTarget() const
+{
+	APawn* CurrentPawn = GetPawn();
+	if (!CurrentPawn)
+	{
+		return nullptr;
+	}
+
+	if (const AUTPSoulPawn* SoulPawn = Cast<AUTPSoulPawn>(CurrentPawn))
+	{
+		return SoulPawn->GetFocusedPossessableTarget();
+	}
+
+	UWorld* World = GetWorld();
+	if (!World || !CurrentPawn->GetClass()->ImplementsInterface(UTPPossessableInterface::StaticClass()))
+	{
+		return nullptr;
+	}
+
+	FVector ViewLocation;
+	FRotator ViewRotation;
+	GetPlayerViewPoint(ViewLocation, ViewRotation);
+
+	const FVector TraceStart = CurrentPawn->GetComponentsBoundingBox(true).GetCenter();
+	const FVector TraceEnd = TraceStart + ViewRotation.Vector() * PossessionAimTraceDistance;
+	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(BodyPossessionTrace), false, CurrentPawn);
+	TArray<FHitResult> HitResults;
+	World->SweepMultiByObjectType(
+		HitResults,
+		TraceStart,
+		TraceEnd,
+		FQuat::Identity,
+		FCollisionObjectQueryParams(ECC_Pawn),
+		FCollisionShape::MakeSphere(PossessionAimTraceRadius),
+		QueryParams);
+
+	for (const FHitResult& Hit : HitResults)
+	{
+		if (Hit.bStartPenetrating)
+		{
+			continue;
+		}
+
+		AActor* Candidate = Hit.GetActor();
+		if (!Candidate || Candidate == CurrentPawn ||
+			!Candidate->GetClass()->ImplementsInterface(UTPPossessableInterface::StaticClass()) ||
+			!ITPPossessableInterface::Execute_CanBePossessed(Candidate, const_cast<AUTPPlayerController*>(this)))
+		{
+			continue;
+		}
+
+		// The object sweep ignores the floor; this thin Visibility ray retains
+		// normal wall occlusion before allowing a direct body-to-body transfer.
+		FHitResult SightHit;
+		const bool bBlocked = World->LineTraceSingleByChannel(
+			SightHit,
+			TraceStart,
+			Hit.ImpactPoint,
+			ECC_Visibility,
+			QueryParams);
+		if (!bBlocked || SightHit.GetActor() == Candidate)
+		{
+			return Candidate;
+		}
+	}
+
+	return nullptr;
+}
+
 void AUTPPlayerController::CreateRuntimeInputMapping()
 {
 	if (!DefaultMappingContext)
@@ -214,6 +391,14 @@ void AUTPPlayerController::CreateRuntimeInputMapping()
 	if (!RuntimeMappingContext || !LookAction)
 	{
 		return;
+	}
+
+	if (PossessTargetAction)
+	{
+		// Do not depend on the authored mapping asset: this runtime context makes
+		// right mouse the sole possession control and removes the old keyboard key.
+		RuntimeMappingContext->UnmapAllKeysFromAction(PossessTargetAction);
+		RuntimeMappingContext->MapKey(PossessTargetAction, EKeys::RightMouseButton);
 	}
 
 	// A 1D MouseY value must be swizzled into the Y component of IA_Look (Axis2D).

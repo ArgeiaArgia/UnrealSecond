@@ -54,5 +54,6 @@ float AUTPTurtleCharacter::GetWeight_Implementation() const
 
 bool AUTPTurtleCharacter::CanActivateWeightPlate_Implementation() const
 {
-	return bIsBracing;
+	// 거북이를 조작 중이거나 배치한 상태 모두 압력판 무게로 인정합니다.
+	return true;
 }

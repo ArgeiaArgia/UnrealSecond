@@ -1,13 +1,14 @@
 #pragma once
 
 #include "GameFramework/Actor.h"
+#include "../../TPToggleableInterface.h"
 #include "UTPWindZone.generated.h"
 
 class UBoxComponent;
 
 /** A volume that pushes flying animals along a controlled wind corridor. */
 UCLASS(Blueprintable)
-class UNREALTEAMPROJECT_API AUTPWindZone : public AActor
+class UNREALTEAMPROJECT_API AUTPWindZone : public AActor, public ITPToggleableInterface
 {
 	GENERATED_BODY()
 
@@ -22,6 +23,9 @@ public:
 
 	UFUNCTION(BlueprintPure, Category="Wind")
 	bool IsWindEnabled() const { return bEnabled; }
+
+	virtual void SetToggleableEnabled_Implementation(bool bInEnabled) override;
+	virtual bool IsToggleableEnabled_Implementation() const override;
 
 protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Wind")

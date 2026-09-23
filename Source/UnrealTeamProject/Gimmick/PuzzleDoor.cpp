@@ -1,37 +1,76 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
-
 #include "PuzzleDoor.h"
 
+#include "Components/StaticMeshComponent.h"
 
 APuzzleDoor::APuzzleDoor()
 {
-    PrimaryActorTick.bCanEverTick = false;
+    PrimaryActorTick.bCanEverTick = true;
 
     DoorMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("DoorMesh"));
     RootComponent = DoorMesh;
 }
 
+void APuzzleDoor::BeginPlay()
+{
+    Super::BeginPlay();
+    ClosedRotation = GetActorRotation();
+}
+
+void APuzzleDoor::Tick(float DeltaSeconds)
+{
+    Super::Tick(DeltaSeconds);
+
+    const FRotator TargetRotation = bIsOpen
+        ? ClosedRotation + FRotator(0.0f, OpenYawAngle, 0.0f)
+        : ClosedRotation;
+    SetActorRotation(FMath::RInterpTo(GetActorRotation(), TargetRotation, DeltaSeconds, RotationSpeed));
+}
+
 void APuzzleDoor::OpenDoor()
 {
-    // 메쉬를 화면에서 숨기고, 충돌 판정을 완전히 끕니다.
-    DoorMesh->SetVisibility(false);
-    DoorMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	if (bIsOpen)
+	{
+		return;
+	}
+
+    bIsOpen = true;
 
     if (GEngine)
     {
-        GEngine->AddOnScreenDebugMessage(-1, 3.0f, FColor::Green, TEXT("DoorOpen"));
+        GEngine->AddOnScreenDebugMessage(-1, 3.0f, FColor::Green, TEXT("Door Open"));
     }
 }
 
 void APuzzleDoor::CloseDoor()
 {
-    // 메쉬를 다시 화면에 보여주고, 충돌 판정을 켭니다.
-    DoorMesh->SetVisibility(true);
-    DoorMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+	if (!bIsOpen)
+	{
+		return;
+	}
+
+    bIsOpen = false;
 
     if (GEngine)
     {
-        GEngine->AddOnScreenDebugMessage(-1, 3.0f, FColor::Red, TEXT("문 닫힘 (Mesh 표시됨)"));
+        GEngine->AddOnScreenDebugMessage(-1, 3.0f, FColor::Red, TEXT("Door Close"));
     }
+}
+
+void APuzzleDoor::SetToggleableEnabled_Implementation(bool bInEnabled)
+{
+	if (bInEnabled)
+	{
+		OpenDoor();
+	}
+	else
+	{
+		CloseDoor();
+	}
+}
+
+bool APuzzleDoor::IsToggleableEnabled_Implementation() const
+{
+	return bIsOpen;
 }

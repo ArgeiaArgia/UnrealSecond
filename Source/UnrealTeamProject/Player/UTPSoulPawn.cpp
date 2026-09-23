@@ -28,6 +28,9 @@ AUTPSoulPawn::AUTPSoulPawn()
 	SetRootComponent(CollisionComponent);
 	CollisionComponent->InitSphereRadius(34.0f);
 	CollisionComponent->SetCollisionProfileName(TEXT("Pawn"));
+	// The soul passes through characters. Possession is intentionally initiated
+	// by the player's right-mouse release, never by an overlap event.
+	CollisionComponent->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
 
 	VisualMeshComponent = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("VisualMeshComponent"));
 	VisualMeshComponent->SetupAttachment(CollisionComponent);
@@ -51,20 +54,6 @@ AUTPSoulPawn::AUTPSoulPawn()
 	if (MoveActionAsset.Succeeded())
 	{
 		MoveAction = MoveActionAsset.Object;
-	}
-
-	static ConstructorHelpers::FObjectFinder<UInputAction> SoulAscendActionAsset(
-		TEXT("/Game/Input/InputActions/IA_SoulAscend.IA_SoulAscend"));
-	if (SoulAscendActionAsset.Succeeded())
-	{
-		SoulAscendAction = SoulAscendActionAsset.Object;
-	}
-
-	static ConstructorHelpers::FObjectFinder<UInputAction> SoulDescendActionAsset(
-		TEXT("/Game/Input/InputActions/IA_SoulDescend.IA_SoulDescend"));
-	if (SoulDescendActionAsset.Succeeded())
-	{
-		SoulDescendAction = SoulDescendActionAsset.Object;
 	}
 
 	bUseControllerRotationPitch = false;
@@ -94,7 +83,10 @@ void AUTPSoulPawn::Tick(float DeltaSeconds)
 		const float Alpha = PossessionVanishDuration > KINDA_SMALL_NUMBER
 			? PossessionVanishElapsed / PossessionVanishDuration
 			: 1.0f;
-		// Ease-in keeps the soul readable at the start, then pulls it away quickly.
+		// Ease-in keeps the soul readable at the start, then pulls it into the
+		// contacted body before it disappears.
+		const float MovementAlpha = FMath::InterpEaseOut(0.0f, 1.0f, Alpha, 2.0f);
+		SetActorLocation(FMath::Lerp(PossessionVanishStartLocation, PossessionVanishDestination, MovementAlpha));
 		SetActorScale3D(PossessionVanishInitialScale * (1.0f - FMath::InterpEaseIn(0.0f, 1.0f, Alpha, 2.0f)));
 		return;
 	}
@@ -140,16 +132,6 @@ void AUTPSoulPawn::SetupPlayerInputComponent(UInputComponent* PlayerInputCompone
 		EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Triggered, this, &AUTPSoulPawn::MoveForward);
 	}
 
-	if (SoulAscendAction)
-	{
-		EnhancedInputComponent->BindAction(SoulAscendAction, ETriggerEvent::Triggered, this, &AUTPSoulPawn::MoveUp);
-	}
-
-	if (SoulDescendAction)
-	{
-		EnhancedInputComponent->BindAction(SoulDescendAction, ETriggerEvent::Triggered, this, &AUTPSoulPawn::MoveDown);
-	}
-
 }
 
 void AUTPSoulPawn::ApplyAnimInstanceClass()
@@ -185,38 +167,6 @@ void AUTPSoulPawn::MoveRight(const FInputActionValue& Value)
 	MoveForward(Value);
 }
 
-void AUTPSoulPawn::MoveUp(const FInputActionValue& Value)
-{
-	const AUTPPlayerController* PlayerController = Cast<AUTPPlayerController>(Controller);
-	if (PlayerController && PlayerController->GetPossessionComponent() &&
-		PlayerController->GetPossessionComponent()->IsPossessionTransitionInProgress())
-	{
-		return;
-	}
-
-	const float MovementValue = Value.Get<float>();
-	if (Controller && !FMath::IsNearlyZero(MovementValue))
-	{
-		AddMovementInput(FVector::UpVector, MovementValue * MoveSpeedScale);
-	}
-}
-
-void AUTPSoulPawn::MoveDown(const FInputActionValue& Value)
-{
-	const AUTPPlayerController* PlayerController = Cast<AUTPPlayerController>(Controller);
-	if (PlayerController && PlayerController->GetPossessionComponent() &&
-		PlayerController->GetPossessionComponent()->IsPossessionTransitionInProgress())
-	{
-		return;
-	}
-
-	const float MovementValue = Value.Get<float>();
-	if (Controller && !FMath::IsNearlyZero(MovementValue))
-	{
-		AddMovementInput(FVector::DownVector, MovementValue * MoveSpeedScale);
-	}
-}
-
 void AUTPSoulPawn::RequestPossessFocusedTarget()
 {
 	AUTPPlayerController* PlayerController = Cast<AUTPPlayerController>(GetController());
@@ -234,7 +184,7 @@ AActor* AUTPSoulPawn::GetFocusedPossessableTarget() const
 	return FocusedPossessableTarget.Get();
 }
 
-void AUTPSoulPawn::BeginPossessionVanish(float InDuration)
+void AUTPSoulPawn::BeginPossessionVanish(const FVector& InDestination, float InDuration)
 {
 	if (bPossessionVanishActive)
 	{
@@ -245,6 +195,8 @@ void AUTPSoulPawn::BeginPossessionVanish(float InDuration)
 	PossessionVanishElapsed = 0.0f;
 	PossessionVanishDuration = FMath::Max(0.0f, InDuration);
 	PossessionVanishInitialScale = GetActorScale3D();
+	PossessionVanishStartLocation = GetActorLocation();
+	PossessionVanishDestination = InDestination;
 	SpawnPossessionEffect(PossessionStartEffect, GetActorLocation());
 	if (MovementComponent)
 	{
@@ -269,6 +221,7 @@ void AUTPSoulPawn::CancelPossessionVanish()
 	bPossessionVanishActive = false;
 	PossessionVanishElapsed = 0.0f;
 	PossessionVanishDuration = 0.0f;
+	SetActorLocation(PossessionVanishStartLocation);
 	SetActorScale3D(PossessionVanishInitialScale);
 
 	RestorePossessionCollision();

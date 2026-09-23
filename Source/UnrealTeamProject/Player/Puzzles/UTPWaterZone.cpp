@@ -109,6 +109,16 @@ void AUTPWaterZone::SetWaterEnabled(bool bInEnabled)
 	}
 }
 
+void AUTPWaterZone::SetToggleableEnabled_Implementation(bool bInEnabled)
+{
+	SetWaterEnabled(bInEnabled);
+}
+
+bool AUTPWaterZone::IsToggleableEnabled_Implementation() const
+{
+	return IsWaterEnabled();
+}
+
 void AUTPWaterZone::OnWaterVolumeBeginOverlap(
 	UPrimitiveComponent* /*OverlappedComponent*/,
 	AActor* OtherActor,

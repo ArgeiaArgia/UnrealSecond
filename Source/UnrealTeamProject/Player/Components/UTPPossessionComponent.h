@@ -100,6 +100,7 @@ private:
 	AUTPPlayerController* GetOwningPlayerController() const;
 	APawn* GetCurrentControlledPawn() const;
 	bool PossessPawn(APawn* NewPawn);
+	bool PossessFromCurrentBody(APawn* PreviousBody, APawn* TargetPawn);
 	AUTPSoulPawn* SpawnSoulPawn(const FTransform& SpawnTransform);
 	void DestroySoulPawn();
 	bool BeginPossessionTransition(APawn* TargetPawn);

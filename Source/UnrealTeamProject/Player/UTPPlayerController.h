@@ -19,6 +19,7 @@ public:
 	AUTPPlayerController();
 
 	virtual void BeginPlay() override;
+	virtual void PlayerTick(float DeltaTime) override;
 	virtual void SetupInputComponent() override;
 	virtual void OnPossess(APawn* InPawn) override;
 	virtual void OnUnPossess() override;
@@ -58,7 +59,24 @@ protected:
 
 private:
 	void HandlePossessionPressed();
+	void HandlePossessionReleased();
 	void HandleLook(const FInputActionValue& Value);
+	void UpdatePossessionAim(float DeltaTime);
+	AActor* FindPossessionAimTarget() const;
 	void CreateRuntimeInputMapping();
 	void UpdateSharedCameraTarget(APawn* InPawn, bool bSnapToTarget = false);
+
+	// Right mouse button is held while selecting a target. The target comes from
+	// the SoulPawn's camera-facing possession sweep and is committed on release.
+	TWeakObjectPtr<AActor> PossessionAimTarget;
+	bool bPossessionAimActive = false;
+
+	UPROPERTY(EditDefaultsOnly, Category="Possession|Aim", meta=(ClampMin="0.0"))
+	float PossessionAimRotationInterpSpeed = 7.0f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Possession|Aim", meta=(ClampMin="0.0"))
+	float PossessionAimTraceDistance = 1800.0f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Possession|Aim", meta=(ClampMin="0.0"))
+	float PossessionAimTraceRadius = 150.0f;
 };

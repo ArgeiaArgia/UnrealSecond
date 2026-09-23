@@ -73,6 +73,16 @@ void AUTPWindZone::SetWindEnabled(bool bInEnabled)
 	}
 }
 
+void AUTPWindZone::SetToggleableEnabled_Implementation(bool bInEnabled)
+{
+	SetWindEnabled(bInEnabled);
+}
+
+bool AUTPWindZone::IsToggleableEnabled_Implementation() const
+{
+	return IsWindEnabled();
+}
+
 void AUTPWindZone::OnWindVolumeBeginOverlap(
 	UPrimitiveComponent* OverlappedComponent,
 	AActor* OtherActor,

@@ -30,19 +30,14 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Soul|Movement")
 	void MoveRight(const FInputActionValue& Value);
 
-	UFUNCTION(BlueprintCallable, Category="Soul|Movement")
-	void MoveUp(const FInputActionValue& Value);
-
-	UFUNCTION(BlueprintCallable, Category="Soul|Movement")
-	void MoveDown(const FInputActionValue& Value);
-
 	UFUNCTION(BlueprintCallable, Category="Soul|Possession")
 	void RequestPossessFocusedTarget();
 
 	UFUNCTION(BlueprintPure, Category="Soul|Possession")
 	AActor* GetFocusedPossessableTarget() const;
 
-	void BeginPossessionVanish(float InDuration);
+	// Pull the soul slightly into the contacted body while it fades out.
+	void BeginPossessionVanish(const FVector& InDestination, float InDuration);
 	void CancelPossessionVanish();
 	void BeginPossessionMaterialize(float InDuration);
 	void FinishPossessionMaterialize();
@@ -71,12 +66,6 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Input|Soul")
 	TObjectPtr<UInputAction> MoveAction;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Input|Soul")
-	TObjectPtr<UInputAction> SoulAscendAction;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Input|Soul")
-	TObjectPtr<UInputAction> SoulDescendAction;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Soul|Possession")
 	float PossessionTraceDistance = 1800.0f;
@@ -110,6 +99,8 @@ private:
 	TObjectPtr<AActor> FocusedPossessableTarget;
 
 	FVector PossessionVanishInitialScale = FVector::OneVector;
+	FVector PossessionVanishStartLocation = FVector::ZeroVector;
+	FVector PossessionVanishDestination = FVector::ZeroVector;
 	float PossessionVanishElapsed = 0.0f;
 	float PossessionVanishDuration = 0.0f;
 	FVector PossessionMaterializeFinalScale = FVector::OneVector;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "GameFramework/Actor.h"
+#include "../../TPToggleableInterface.h"
 #include "UTPShallowWaterInterface.h"
 #include "UTPWaterZone.generated.h"
 
@@ -8,7 +9,7 @@ class UBoxComponent;
 
 /** Shallow water volume. It adjusts tagged frog actors without owning frog gameplay logic. */
 UCLASS(Blueprintable)
-class UNREALTEAMPROJECT_API AUTPWaterZone : public AActor, public ITPShallowWaterInterface
+class UNREALTEAMPROJECT_API AUTPWaterZone : public AActor, public ITPShallowWaterInterface, public ITPToggleableInterface
 {
 	GENERATED_BODY()
 
@@ -27,6 +28,9 @@ public:
 
 	UFUNCTION(BlueprintPure, Category="Water")
 	bool IsWaterEnabled() const { return bIsEnabled; }
+
+	virtual void SetToggleableEnabled_Implementation(bool bInEnabled) override;
+	virtual bool IsToggleableEnabled_Implementation() const override;
 
 protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Water")

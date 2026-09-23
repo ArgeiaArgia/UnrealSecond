@@ -5,7 +5,7 @@
 
 AAreaForceVolume::AAreaForceVolume()
 {
-    PrimaryActorTick.bCanEverTick = true; // ¸Å ÇÁ·¹ÀÓ ÈûÀ» °¡ÇØ¾ß ÇÏ¹Ç·Î Æ½ È°¼ºÈ­
+    PrimaryActorTick.bCanEverTick = true; // ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Ø¾ï¿½ ï¿½Ï¹Ç·ï¿½ Æ½ È°ï¿½ï¿½È­
 
     VolumeBox = CreateDefaultSubobject<UBoxComponent>(TEXT("VolumeBox"));
     RootComponent = VolumeBox;
@@ -22,12 +22,17 @@ AAreaForceVolume::AAreaForceVolume()
 void AAreaForceVolume::BeginPlay()
 {
     Super::BeginPlay();
-    PushDirection.Normalize(); // ¹æÇâ º¤ÅÍ Á¤±ÔÈ­ (±æÀÌ¸¦ 1·Î ¸ÂÃã)
+    PushDirection.Normalize(); // ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½È­ (ï¿½ï¿½ï¿½Ì¸ï¿½ 1ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½)
 }
 
 void AAreaForceVolume::Tick(float DeltaTime)
 {
     Super::Tick(DeltaTime);
+
+    if (!bEnabled)
+    {
+        return;
+    }
 
     for (AActor* Actor : AffectedActors)
     {
@@ -44,7 +49,7 @@ void AAreaForceVolume::Tick(float DeltaTime)
             {
                 if (PrimitiveComp->IsSimulatingPhysics())
                 {
-                    // ¼¼ ¹øÂ° ÀÎÀÚ true¸¦ ³ÖÀ¸¸é Áú·®À» ¹«½ÃÇÏ´Â °¡¼Óµµ(Acceleration) ¸ðµå°¡ µÇ¾î ¹«Á¶°Ç ¹Ð¸®°Ô µË´Ï´Ù.
+                    // ï¿½ï¿½ ï¿½ï¿½Â° ï¿½ï¿½ï¿½ï¿½ trueï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ï´ï¿½ ï¿½ï¿½ï¿½Óµï¿½(Acceleration) ï¿½ï¿½å°¡ ï¿½Ç¾ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ð¸ï¿½ï¿½ï¿½ ï¿½Ë´Ï´ï¿½.
                     PrimitiveComp->AddForce(PushDirection * PushStrength, NAME_None, true);
                 }
             }
@@ -60,10 +65,10 @@ void AAreaForceVolume::OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActo
 
     AffectedActors.Add(OtherActor);
 
-    // ´ë»óÀÌ Á¦´ë·Î ÀÎ½ÄµÇ¾ú´ÂÁö È­¸é ÁÂÃø »ó´Ü¿¡ ÆÄ¶õ»ö ·Î±×¸¦ ¶ç¿ó´Ï´Ù.
+    // ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Î½ÄµÇ¾ï¿½ï¿½ï¿½ï¿½ï¿½ È­ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Ü¿ï¿½ ï¿½Ä¶ï¿½ï¿½ï¿½ ï¿½Î±×¸ï¿½ ï¿½ï¿½ï¿½Ï´ï¿½.
     if (GEngine)
     {
-        FString Msg = FString::Printf(TEXT("¹Ù¶÷/±Þ·ù ±¸¿ª ÀÎ½ÄµÊ: %s"), *OtherActor->GetName());
+        FString Msg = FString::Printf(TEXT("ï¿½Ù¶ï¿½/ï¿½Þ·ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Î½Äµï¿½: %s"), *OtherActor->GetName());
         GEngine->AddOnScreenDebugMessage(-1, 3.0f, FColor::Cyan, Msg);
     }
 }
@@ -76,4 +81,14 @@ void AAreaForceVolume::OnOverlapEnd(UPrimitiveComponent* OverlappedComp, AActor*
     {
         AffectedActors.Remove(OtherActor);
     }
+}
+
+void AAreaForceVolume::SetToggleableEnabled_Implementation(bool bInEnabled)
+{
+    bEnabled = bInEnabled;
+}
+
+bool AAreaForceVolume::IsToggleableEnabled_Implementation() const
+{
+    return bEnabled;
 }

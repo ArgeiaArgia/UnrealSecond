@@ -4,12 +4,13 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "TPToggleableInterface.h"
 #include "AreaForceVolume.generated.h"
 
 class UBoxComponent;
 
 UCLASS()
-class UNREALTEAMPROJECT_API AAreaForceVolume : public AActor
+class UNREALTEAMPROJECT_API AAreaForceVolume : public AActor, public ITPToggleableInterface
 {
     GENERATED_BODY()
 
@@ -17,17 +18,23 @@ public:
     AAreaForceVolume();
     virtual void Tick(float DeltaTime) override;
 
-    // ¹Ð¾î³¾ ¹æÇâ (¿ùµå ÁÂÇ¥ ±âÁØ)
+    virtual void SetToggleableEnabled_Implementation(bool bInEnabled) override;
+    virtual bool IsToggleableEnabled_Implementation() const override;
+
+    // ï¿½Ð¾î³¾ ï¿½ï¿½ï¿½ï¿½ (ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Ç¥ ï¿½ï¿½ï¿½ï¿½)
     UPROPERTY(EditAnywhere, Category = "Force Settings")
     FVector PushDirection;
 
-    // ¹Ð¾î³»´Â ÈûÀÇ ¼¼±â
+    // ï¿½Ð¾î³»ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
     UPROPERTY(EditAnywhere, Category = "Force Settings")
     float PushStrength;
 
-    // ¿µÇâÀ» ¹ÞÀ» ¾×ÅÍÀÇ ÅÂ±× (ºñ¿öµÎ¸é ¸ðµÎ ¹Ð¾î³¿)
+    // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Â±ï¿½ (ï¿½ï¿½ï¿½ï¿½Î¸ï¿½ ï¿½ï¿½ï¿½ ï¿½Ð¾î³¿)
     UPROPERTY(EditAnywhere, Category = "Force Settings")
     FName TargetTag;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Force Settings")
+    bool bEnabled = true;
 
 protected:
     virtual void BeginPlay() override;
@@ -42,7 +49,7 @@ protected:
     void OnOverlapEnd(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex);
 
 private:
-    // ¿µ¿ª ¾È¿¡ µé¾î¿Í ÀÖ´Â À¯È¿ÇÑ ¾×ÅÍµéÀ» ±â¾ïÇÏ´Â ¹è¿­
+    // ï¿½ï¿½ï¿½ï¿½ ï¿½È¿ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ö´ï¿½ ï¿½ï¿½È¿ï¿½ï¿½ ï¿½ï¿½ï¿½Íµï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½Ï´ï¿½ ï¿½è¿­
     UPROPERTY()
     TSet<AActor*> AffectedActors;
 };
