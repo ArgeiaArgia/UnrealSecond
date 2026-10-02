@@ -144,13 +144,12 @@ protected:
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category="Animal|Flying")
 	bool bIsAbilityActive = false;
 
-	FVector GetDesiredFlightVelocity() const;
+	float GetDesiredFlightVerticalVelocity() const;
 	bool TryGetGroundDistance(float& OutDistance) const;
 	bool IsOnValidLandingSurface() const;
 	void BeginLanding();
 
 private:
-	float LateralInput = 0.0f;
 	float RemainingLandingTime = 0.0f;
 	float RemainingAbilityTime = 0.0f;
 

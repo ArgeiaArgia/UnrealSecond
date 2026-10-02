@@ -23,7 +23,9 @@ AUTPFlyingAnimalCharacter::AUTPFlyingAnimalCharacter()
 		Movement->GravityScale = 1.0f;
 		Movement->AirControl = 0.15f;
 		Movement->MaxWalkSpeed = 250.0f;
+		Movement->MaxFlySpeed = 250.0f;
 		Movement->MaxAcceleration = 900.0f;
+		Movement->BrakingDecelerationFlying = 900.0f;
 	}
 
 	// A released flying animal must remain where it landed.
@@ -50,7 +52,6 @@ void AUTPFlyingAnimalCharacter::BeginPlay()
 	Super::BeginPlay();
 
 	FlightState = EUTPFlightState::Perched;
-	LateralInput = 0.0f;
 	RemainingLandingTime = 0.0f;
 	RemainingAbilityTime = 0.0f;
 }
@@ -76,7 +77,7 @@ void AUTPFlyingAnimalCharacter::Tick(float DeltaSeconds)
 		bIsAbilityActive = false;
 	}
 
-	if (FlightState == EUTPFlightState::Perched || FlightState == EUTPFlightState::Landing)
+	if (FlightState == EUTPFlightState::Landing)
 	{
 		if (UCharacterMovementComponent* Movement = GetCharacterMovement())
 		{
@@ -85,14 +86,20 @@ void AUTPFlyingAnimalCharacter::Tick(float DeltaSeconds)
 		return;
 	}
 
+	if (!IsFlying())
+	{
+		return;
+	}
+
 	if (UCharacterMovementComponent* Movement = GetCharacterMovement())
 	{
-		// Falling applies gravity every frame, which made the fox behave exactly
-		// like a normal jump. Flying lets this class own its vertical velocity.
+		// CharacterMovement owns horizontal steering and collision response.  Only
+		// the vertical velocity is authored here, so a wall cannot be repeatedly
+		// pushed into by a manually forced flight vector.
 		Movement->SetMovementMode(MOVE_Flying);
-		Movement->Velocity = FMath::VInterpTo(
-			Movement->Velocity,
-			GetDesiredFlightVelocity(),
+		Movement->Velocity.Z = FMath::FInterpTo(
+			Movement->Velocity.Z,
+			GetDesiredFlightVerticalVelocity(),
 			DeltaSeconds,
 			WindAcceleration);
 	}
@@ -119,24 +126,13 @@ void AUTPFlyingAnimalCharacter::Move(const FInputActionValue& Value)
 {
 	if (!IsSoulPossessed() || IsPossessionTransitionInputLocked())
 	{
-		LateralInput = 0.0f;
 		return;
 	}
 
-	// While perched (or after landing), the flying fox uses the standard
-	// character movement so it can walk to a takeoff point.  Previously these
-	// states discarded every move input, making a newly possessed fox appear
-	// completely unresponsive until a jump was pressed.
-	if (FlightState == EUTPFlightState::Perched || FlightState == EUTPFlightState::Landing)
-	{
-		LateralInput = 0.0f;
-		Super::Move(Value);
-		return;
-	}
-
-	const FVector2D Input = Value.Get<FVector2D>();
-	// Only the X axis is used. Forward/backward input cannot fight the wind.
-	LateralInput = FMath::Clamp(Input.X, -1.0f, 1.0f);
+	// Keep standard camera-relative WASD input on the ground and in flight.
+	// The bat is deliberately slow, but it must never discard forward/backward
+	// movement merely because it has taken off.
+	Super::Move(Value);
 }
 
 void AUTPFlyingAnimalCharacter::StartJump()
@@ -148,7 +144,6 @@ void AUTPFlyingAnimalCharacter::OnPossessedBySoul_Implementation(APawn* SoulPawn
 {
 	Super::OnPossessedBySoul_Implementation(SoulPawn);
 
-	LateralInput = 0.0f;
 	RemainingLandingTime = 0.0f;
 	if (FlightState == EUTPFlightState::Landing)
 	{
@@ -169,7 +164,6 @@ void AUTPFlyingAnimalCharacter::OnReleasedFromSoul_Implementation(APawn* SoulPaw
 	Super::OnReleasedFromSoul_Implementation(SoulPawn);
 
 	FlightState = EUTPFlightState::Perched;
-	LateralInput = 0.0f;
 	RemainingLandingTime = 0.0f;
 	RemainingAbilityTime = 0.0f;
 	bIsAbilityActive = false;
@@ -278,8 +272,7 @@ void AUTPFlyingAnimalCharacter::StartTakeoff()
 	if (UCharacterMovementComponent* Movement = GetCharacterMovement())
 	{
 		Movement->SetMovementMode(MOVE_Flying);
-		Movement->Velocity = GetActorForwardVector() * TakeoffSpeed +
-			FVector::UpVector * TakeoffSpeed;
+		Movement->Velocity.Z = TakeoffSpeed;
 	}
 
 	FlightState = bIsInsideWindZone ? EUTPFlightState::WindRide : EUTPFlightState::Glide;
@@ -296,7 +289,7 @@ void AUTPFlyingAnimalCharacter::ActivateAnimalAbility()
 	bIsAbilityActive = RemainingAbilityTime > 0.0f;
 }
 
-FVector AUTPFlyingAnimalCharacter::GetDesiredFlightVelocity() const
+float AUTPFlyingAnimalCharacter::GetDesiredFlightVerticalVelocity() const
 {
 	const float SinkScale = bIsAbilityActive ? AbilitySinkMultiplier : 1.0f;
 	float DesiredVerticalVelocity = CurrentLiftStrength - GlideSinkSpeed * SinkScale;
@@ -317,30 +310,7 @@ FVector AUTPFlyingAnimalCharacter::GetDesiredFlightVelocity() const
 		DesiredVerticalVelocity = FMath::Max(DesiredVerticalVelocity, HoverCorrection);
 	}
 
-	if (bIsInsideWindZone && !CurrentWindDirection.IsNearlyZero())
-	{
-		const FVector WindDirection = CurrentWindDirection.GetSafeNormal();
-		FVector LateralDirection = FVector::CrossProduct(FVector::UpVector, WindDirection).GetSafeNormal();
-		if (LateralDirection.IsNearlyZero())
-		{
-			LateralDirection = GetActorRightVector().GetSafeNormal();
-		}
-
-		return WindDirection * (CurrentWindSpeed > 0.0f ? CurrentWindSpeed : WindRideSpeed) +
-			LateralDirection * LateralInput * MaxLateralSpeed +
-			FVector::UpVector * DesiredVerticalVelocity;
-	}
-
-	const FVector CurrentHorizontalVelocity = FVector(GetVelocity().X, GetVelocity().Y, 0.0f);
-	FVector LateralDirection = FVector::CrossProduct(FVector::UpVector, GetActorForwardVector()).GetSafeNormal();
-	if (LateralDirection.IsNearlyZero())
-	{
-		LateralDirection = GetActorRightVector().GetSafeNormal();
-	}
-
-	return CurrentHorizontalVelocity +
-		LateralDirection * LateralInput * MaxLateralSpeed +
-		FVector::UpVector * DesiredVerticalVelocity;
+	return DesiredVerticalVelocity;
 }
 
 bool AUTPFlyingAnimalCharacter::TryGetGroundDistance(float& OutDistance) const
@@ -397,7 +367,6 @@ void AUTPFlyingAnimalCharacter::BeginLanding()
 
 	FlightState = EUTPFlightState::Landing;
 	RemainingLandingTime = LandingStabilizationTime;
-	LateralInput = 0.0f;
 
 	if (UCharacterMovementComponent* Movement = GetCharacterMovement())
 	{
