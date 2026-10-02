@@ -14,6 +14,9 @@ AUTPFrogCharacter::AUTPFrogCharacter()
 	PrimaryActorTick.bStartWithTickEnabled = true;
 
 	GetCapsuleComponent()->InitCapsuleSize(42.0f, 52.0f);
+	// Water zones block the regular Pawn channel, while frogs use their own
+	// channel so they can overlap and traverse shallow water.
+	GetCapsuleComponent()->SetCollisionObjectType(ECC_GameTraceChannel4);
 	GetMesh()->SetRelativeLocation(FVector(0.0f, 0.0f, -52.0f));
 	GetMesh()->SetRelativeRotation(FRotator(0.0f, -90.0f, 0.0f));
 
@@ -41,6 +44,9 @@ AUTPFrogCharacter::AUTPFrogCharacter()
 void AUTPFrogCharacter::BeginPlay()
 {
 	Super::BeginPlay();
+	// Child Blueprints can retain an older Pawn collision preset, so enforce the
+	// frog object channel once their serialized component settings are loaded.
+	GetCapsuleComponent()->SetCollisionObjectType(ECC_GameTraceChannel4);
 
 	FrogState = bIsInShallowWater
 		? EUTPFrogState::ShallowWater

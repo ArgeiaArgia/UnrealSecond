@@ -29,7 +29,10 @@ void UTPPossessionComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 
 	if (bPossessionCinematicActive)
 	{
-		if (!IsValid(SoulPawn.Get()) || !PendingPossessionTarget.IsValid())
+		const bool bMissingTransitionSource = bPossessionCinematicTransfersBody
+			? !PendingBodyTransferSource.IsValid()
+			: !IsValid(SoulPawn.Get());
+		if (bMissingTransitionSource || !PendingPossessionTarget.IsValid())
 		{
 			CancelPossessionTransition();
 			return;
@@ -46,6 +49,10 @@ void UTPPossessionComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 			if (bPossessionCinematicReturnsToSoul)
 			{
 				CompleteSoulReleaseTransition();
+			}
+			else if (bPossessionCinematicTransfersBody)
+			{
+				CompleteBodyPossessionTransition();
 			}
 			else
 			{
@@ -170,15 +177,20 @@ bool UTPPossessionComponent::TryPossessTarget(AActor* TargetActor)
 		return BeginPossessionTransition(TargetPawn);
 	}
 
-	// The player may move directly between possessable bodies. There is no Soul
-	// pawn to animate in this path, so transfer control after the same interface
-	// validation used by a normal Soul-to-body possession.
+	// A controlled character uses the same target-selection and cinematic flow
+	// as the Soul. Its body remains behind, then control transfers once the
+	// camera has reached the target.
 	if (!CurrentPawn->GetClass()->ImplementsInterface(UTPPossessableInterface::StaticClass()))
 	{
 		return false;
 	}
 
-	return PossessFromCurrentBody(CurrentPawn, TargetPawn);
+	if (!ITPPossessableInterface::Execute_CanReleaseFromSoul(CurrentPawn))
+	{
+		return false;
+	}
+
+	return BeginBodyPossessionTransition(CurrentPawn, TargetPawn);
 }
 
 bool UTPPossessionComponent::TogglePossession()
@@ -347,7 +359,7 @@ bool UTPPossessionComponent::PossessPawn(APawn* NewPawn)
 bool UTPPossessionComponent::PossessFromCurrentBody(APawn* PreviousBody, APawn* TargetPawn)
 {
 	if (!IsValid(PreviousBody) || !IsValid(TargetPawn) || PreviousBody == TargetPawn ||
-		bPossessionTransitionInProgress)
+		(bPossessionTransitionInProgress && !bPossessionCinematicTransfersBody))
 	{
 		return false;
 	}
@@ -370,6 +382,58 @@ bool UTPPossessionComponent::PossessFromCurrentBody(APawn* PreviousBody, APawn* 
 	}
 
 	return true;
+}
+
+bool UTPPossessionComponent::BeginBodyPossessionTransition(APawn* PreviousBody, APawn* TargetPawn)
+{
+	AUTPPlayerController* PlayerController = GetOwningPlayerController();
+	if (!PlayerController || !IsValid(PreviousBody) || !IsValid(TargetPawn) ||
+		PreviousBody == TargetPawn || bPossessionTransitionInProgress)
+	{
+		return false;
+	}
+
+	PendingBodyTransferSource = PreviousBody;
+	PendingPossessionTarget = TargetPawn;
+	RemainingPossessionTransitionTime = FMath::Max(0.0f, PossessionTransitionSeconds);
+	bPossessionTransitionInProgress = true;
+	bPossessionCinematicActive = true;
+	bPossessionCinematicTransfersBody = true;
+
+	PlayerController->SetIgnoreMoveInput(true);
+	PlayerController->SetIgnoreLookInput(true);
+	PlayerController->BeginPossessionCameraTransition(TargetPawn, PossessionTransitionSeconds);
+
+	if (RemainingPossessionTransitionTime <= 0.0f)
+	{
+		CompleteBodyPossessionTransition();
+	}
+
+	return true;
+}
+
+void UTPPossessionComponent::CompleteBodyPossessionTransition()
+{
+	AUTPPlayerController* PlayerController = GetOwningPlayerController();
+	APawn* PreviousBody = PendingBodyTransferSource.Get();
+	APawn* TargetPawn = PendingPossessionTarget.Get();
+	if (!PlayerController || !IsValid(PreviousBody) || !IsValid(TargetPawn) ||
+		!PossessFromCurrentBody(PreviousBody, TargetPawn))
+	{
+		CancelPossessionTransition();
+		return;
+	}
+
+	PlayerController->PreserveSharedCameraAngle();
+	PendingBodyTransferSource = nullptr;
+	PendingPossessionTarget = nullptr;
+	RemainingPossessionTransitionTime = 0.0f;
+	bPossessionCinematicActive = false;
+	bPossessionTransitionInProgress = false;
+	bPossessionCinematicReturnsToSoul = false;
+	bPossessionCinematicTransfersBody = false;
+	PlayerController->SetIgnoreMoveInput(false);
+	PlayerController->ResetIgnoreLookInput();
 }
 
 AUTPSoulPawn* UTPPossessionComponent::SpawnSoulPawn(const FTransform& SpawnTransform)
@@ -461,8 +525,9 @@ void UTPPossessionComponent::CompletePossessionTransition()
 	bPossessionCinematicActive = false;
 	bPossessionTransitionInProgress = false;
 	bPossessionCinematicReturnsToSoul = false;
+	bPossessionCinematicTransfersBody = false;
 	PlayerController->SetIgnoreMoveInput(false);
-	PlayerController->SetIgnoreLookInput(false);
+	PlayerController->ResetIgnoreLookInput();
 }
 
 bool UTPPossessionComponent::BeginSoulReleaseTransition(APawn* PreviousBody, AUTPSoulPawn* NewSoulPawn)
@@ -531,8 +596,9 @@ void UTPPossessionComponent::CompleteSoulReleaseTransition()
 	bPossessionCinematicActive = false;
 	bPossessionTransitionInProgress = false;
 	bPossessionCinematicReturnsToSoul = false;
+	bPossessionCinematicTransfersBody = false;
 	PlayerController->SetIgnoreMoveInput(false);
-	PlayerController->SetIgnoreLookInput(false);
+	PlayerController->ResetIgnoreLookInput();
 }
 
 void UTPPossessionComponent::CancelPossessionTransition()
@@ -549,14 +615,16 @@ void UTPPossessionComponent::CancelPossessionTransition()
 	if (AUTPPlayerController* PlayerController = GetOwningPlayerController())
 	{
 		PlayerController->SetIgnoreMoveInput(false);
-		PlayerController->SetIgnoreLookInput(false);
+		PlayerController->ResetIgnoreLookInput();
 		PlayerController->CancelPossessionCameraTransition();
 	}
 
 	PendingPossessionTarget = nullptr;
 	PendingReleasedBody = nullptr;
+	PendingBodyTransferSource = nullptr;
 	RemainingPossessionTransitionTime = 0.0f;
 	bPossessionCinematicActive = false;
 	bPossessionTransitionInProgress = false;
 	bPossessionCinematicReturnsToSoul = false;
+	bPossessionCinematicTransfersBody = false;
 }

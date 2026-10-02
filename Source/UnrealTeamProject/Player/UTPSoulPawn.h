@@ -70,12 +70,6 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Soul|Possession")
 	float PossessionTraceDistance = 1800.0f;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Soul|Possession", meta=(ClampMin="0"))
-	float PossessionTraceRadius = 150.0f;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Soul|Possession")
-	TEnumAsByte<ECollisionChannel> PossessionTraceChannel = ECC_Visibility;
-
 	// Optional Niagara assets. Assign these in BP_SoulPawn; no effect is spawned
 	// when an asset slot is left empty.
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Soul|Possession|Effects")

@@ -2,17 +2,22 @@
 
 #include "Camera/UTPSharedCameraRig.h"
 #include "Components/UTPPossessionComponent.h"
+#include "UI/UTPPossessionProgressWidget.h"
+#include "UI/UTPTutorialWidget.h"
 #include "UTPSoulPawn.h"
 
 #include "Camera/PlayerCameraManager.h"
-#include "CollisionShape.h"
+#include "DrawDebugHelpers.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
 #include "GameFramework/Pawn.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "InputModifiers.h"
 #include "InputAction.h"
 #include "InputMappingContext.h"
+#include "Blueprint/WidgetLayoutLibrary.h"
+#include "Components/PrimitiveComponent.h"
 #include "UTPPossessableInterface.h"
 #include "UObject/UObjectGlobals.h"
 #include "UObject/ConstructorHelpers.h"
@@ -21,6 +26,7 @@ AUTPPlayerController::AUTPPlayerController()
 {
 	PossessionComponent = CreateDefaultSubobject<UTPPossessionComponent>(TEXT("PossessionComponent"));
 	bAutoManageActiveCameraTarget = false;
+	InitialTutorialMessage = NSLOCTEXT("Tutorial", "InitialMovementPrompt", "WASD로 움직여 땅으로 올라가세요.");
 
 	static ConstructorHelpers::FObjectFinder<UInputMappingContext> MappingContextAsset(
 		TEXT("/Game/Input/IMC_Player.IMC_Player"));
@@ -47,13 +53,16 @@ AUTPPlayerController::AUTPPlayerController()
 void AUTPPlayerController::BeginPlay()
 {
 	Super::BeginPlay();
+	// A completed or interrupted possession cinematic must never leave a
+	// residual look-input lock on the normal exploration camera.
+	ResetIgnoreLookInput();
 
 	// Start from an overhead angle and keep vertical look within this range.
 	SetControlRotation(FRotator(-60.0f, GetControlRotation().Yaw, 0.0f));
 	if (PlayerCameraManager)
 	{
-		PlayerCameraManager->ViewPitchMin = -80.0f;
-		PlayerCameraManager->ViewPitchMax = -35.0f;
+		PlayerCameraManager->ViewPitchMin = -85.0f;
+		PlayerCameraManager->ViewPitchMax = 20.0f;
 	}
 
 	if (UWorld* World = GetWorld())
@@ -73,6 +82,12 @@ void AUTPPlayerController::BeginPlay()
 	}
 
 	CreateRuntimeInputMapping();
+	CreatePossessionProgressWidget();
+	CreateTutorialWidget();
+	if (!InitialTutorialMessage.IsEmpty())
+	{
+		ShowTutorialMessage(InitialTutorialMessage);
+	}
 
 	if (RuntimeMappingContext)
 	{
@@ -90,6 +105,7 @@ void AUTPPlayerController::BeginPlay()
 void AUTPPlayerController::PlayerTick(float DeltaTime)
 {
 	Super::PlayerTick(DeltaTime);
+	UpdatePossessionFocus();
 	UpdatePossessionAim(DeltaTime);
 }
 
@@ -128,6 +144,9 @@ void AUTPPlayerController::SetupInputComponent()
 void AUTPPlayerController::OnPossess(APawn* InPawn)
 {
 	Super::OnPossess(InPawn);
+	SetPossessionFocusTarget(nullptr);
+	SetPossessionAimZoomEnabled(false);
+	HidePossessionProgressWidget();
 	UpdateSharedCameraTarget(InPawn);
 
 	if (PossessionComponent)
@@ -139,6 +158,9 @@ void AUTPPlayerController::OnPossess(APawn* InPawn)
 void AUTPPlayerController::OnUnPossess()
 {
 	APawn* PreviousPawn = GetPawn();
+	SetPossessionFocusTarget(nullptr);
+	SetPossessionAimZoomEnabled(false);
+	HidePossessionProgressWidget();
 	Super::OnUnPossess();
 
 	if (PossessionComponent)
@@ -155,6 +177,23 @@ bool AUTPPlayerController::TryPossessTarget(AActor* TargetActor)
 bool AUTPPlayerController::TogglePossession()
 {
 	return PossessionComponent ? PossessionComponent->TogglePossession() : false;
+}
+
+void AUTPPlayerController::ShowTutorialMessage(const FText& Message)
+{
+	CreateTutorialWidget();
+	if (TutorialWidget)
+	{
+		TutorialWidget->ShowMessage(Message);
+	}
+}
+
+void AUTPPlayerController::HideTutorialMessage()
+{
+	if (TutorialWidget)
+	{
+		TutorialWidget->HideMessage();
+	}
 }
 
 void AUTPPlayerController::BeginPossessionCameraTransition(APawn* TargetPawn, float Duration)
@@ -203,9 +242,16 @@ void AUTPPlayerController::HandlePossessionPressed()
 		CurrentPawn->GetClass()->ImplementsInterface(UTPPossessableInterface::StaticClass())))
 	{
 		// Hold right mouse to keep the camera trained on the currently valid,
-		// camera-facing target. Possession itself only happens on release.
+		// on-screen target. Possession completes after the configured duration.
 		bPossessionAimActive = true;
-		PossessionAimTarget = FindPossessionAimTarget();
+		PossessionAimHoldElapsed = 0.0f;
+		PossessionAimTarget = PossessionFocusTarget.IsValid()
+			? PossessionFocusTarget.Get()
+			: FindPossessionAimTarget();
+		if (PossessionAimTarget.IsValid())
+		{
+			SetPossessionFocusTarget(PossessionAimTarget.Get());
+		}
 		UpdatePossessionAim(0.0f);
 		return;
 	}
@@ -222,20 +268,9 @@ void AUTPPlayerController::HandlePossessionReleased()
 
 	bPossessionAimActive = false;
 	PossessionAimTarget = nullptr;
-
-	// Re-query at release so the target must still be visible and inside the
-	// configured possession range. With no target, retain the prior behavior of
-	// returning the currently controlled animal to Soul form.
-	if (AActor* TargetActor = FindPossessionAimTarget())
-	{
-		TryPossessTarget(TargetActor);
-		return;
-	}
-
-	if (!Cast<AUTPSoulPawn>(GetPawn()))
-	{
-		TogglePossession();
-	}
+	PossessionAimHoldElapsed = 0.0f;
+	SetPossessionAimZoomEnabled(false);
+	HidePossessionProgressWidget();
 }
 
 void AUTPPlayerController::HandleLook(const FInputActionValue& Value)
@@ -251,8 +286,67 @@ void AUTPPlayerController::HandleLook(const FInputActionValue& Value)
 		return;
 	}
 
-	AddYawInput(LookValue.X);
-	AddPitchInput(LookValue.Y);
+	// During a possession focus, UpdatePossessionAim owns the control rotation
+	// so the target remains fixed. Outside focus, set it directly rather than
+	// going through AddYawInput/AddPitchInput: those inputs can remain ignored
+	// by another controller input lock even after normal play has resumed.
+	if (bPossessionAimActive)
+	{
+		return;
+	}
+
+	FRotator NewControlRotation = GetControlRotation().GetNormalized();
+	NewControlRotation.Yaw = FRotator::NormalizeAxis(NewControlRotation.Yaw + LookValue.X);
+	const float MinimumPitch = PlayerCameraManager ? PlayerCameraManager->ViewPitchMin : -85.0f;
+	const float MaximumPitch = PlayerCameraManager ? PlayerCameraManager->ViewPitchMax : 20.0f;
+	NewControlRotation.Pitch = FMath::Clamp(
+		NewControlRotation.Pitch + LookValue.Y,
+		MinimumPitch,
+		MaximumPitch);
+	NewControlRotation.Roll = 0.0f;
+	SetControlRotation(NewControlRotation);
+}
+
+void AUTPPlayerController::UpdatePossessionFocus()
+{
+	APawn* CurrentPawn = GetPawn();
+	if (!CurrentPawn || Cast<AUTPSoulPawn>(CurrentPawn))
+	{
+		// The Soul owns its focus state and its focus visuals.
+		SetPossessionFocusTarget(nullptr);
+		return;
+	}
+
+	if (!CurrentPawn->GetClass()->ImplementsInterface(UTPPossessableInterface::StaticClass()) ||
+		(PossessionComponent && PossessionComponent->IsPossessionTransitionInProgress()) ||
+		bPossessionAimActive)
+	{
+		if (!bPossessionAimActive)
+		{
+			SetPossessionFocusTarget(nullptr);
+		}
+		return;
+	}
+
+	AActor* NewTarget = FindCameraPossessionTarget(CurrentPawn, PossessionAimTraceDistance);
+	if (bDrawCharacterPossessionTrace)
+	{
+		FVector ViewLocation;
+		FRotator ViewRotation;
+		GetPlayerViewPoint(ViewLocation, ViewRotation);
+
+		const FVector DebugEnd = NewTarget
+			? NewTarget->GetComponentsBoundingBox(true).GetCenter()
+			: ViewLocation + ViewRotation.Vector() * PossessionAimTraceDistance;
+		const FColor DebugColor = NewTarget ? FColor::Green : FColor::Cyan;
+		DrawDebugLine(GetWorld(), ViewLocation, DebugEnd, DebugColor, false, 0.0f, 0, 1.5f);
+		if (NewTarget)
+		{
+			DrawDebugSphere(GetWorld(), DebugEnd, 18.0f, 12, DebugColor, false, 0.0f, 0, 1.5f);
+		}
+	}
+
+	SetPossessionFocusTarget(NewTarget);
 }
 
 void AUTPPlayerController::UpdatePossessionAim(float DeltaTime)
@@ -271,21 +365,32 @@ void AUTPPlayerController::UpdatePossessionAim(float DeltaTime)
 	{
 		bPossessionAimActive = false;
 		PossessionAimTarget = nullptr;
+		PossessionAimHoldElapsed = 0.0f;
+		SetPossessionAimZoomEnabled(false);
+		HidePossessionProgressWidget();
 		return;
 	}
 
-	// Acquire one target per hold. Continuously replacing it while the control
-	// rotation moves causes the camera to wobble between nearby characters.
-	// A destroyed target can still be replaced on the next frame.
+	// Lock the initial target for the duration of the hold. Re-selecting every
+	// frame while the camera rotates can alternate between nearby candidates and
+	// make the camera visibly shake.
 	if (!PossessionAimTarget.IsValid())
 	{
-		PossessionAimTarget = FindPossessionAimTarget();
+		PossessionAimTarget = PossessionFocusTarget.IsValid()
+			? PossessionFocusTarget.Get()
+			: FindPossessionAimTarget();
+		PossessionAimHoldElapsed = 0.0f;
 	}
+
 	AActor* TargetActor = PossessionAimTarget.Get();
 	if (!IsValid(TargetActor))
 	{
+		PossessionAimHoldElapsed = 0.0f;
+		SetPossessionAimZoomEnabled(false);
+		HidePossessionProgressWidget();
 		return;
 	}
+	SetPossessionAimZoomEnabled(true);
 
 	FVector ViewLocation;
 	FRotator ViewRotation;
@@ -296,19 +401,107 @@ void AUTPPlayerController::UpdatePossessionAim(float DeltaTime)
 		return;
 	}
 
-	FRotator DesiredRotation = GetControlRotation();
-	// This is an overhead camera. Retaining its pitch prevents the view from
-	// dipping or rising abruptly just because targets differ in height; only
-	// rotate around the player so the locked character stays in front.
-	DesiredRotation.Yaw = (TargetLocation - ViewLocation).Rotation().Yaw;
+	FRotator DesiredRotation = (TargetLocation - ViewLocation).Rotation();
 	DesiredRotation.Roll = 0.0f;
-
-	const FRotator NewRotation = FMath::RInterpTo(
+	SetControlRotation(FMath::RInterpTo(
 		GetControlRotation(),
 		DesiredRotation,
 		DeltaTime,
-		PossessionAimRotationInterpSpeed);
-	SetControlRotation(NewRotation);
+		PossessionAimRotationInterpSpeed));
+
+	PossessionAimHoldElapsed += DeltaTime;
+	const float HoldProgress = PossessionAimHoldDuration > KINDA_SMALL_NUMBER
+		? PossessionAimHoldElapsed / PossessionAimHoldDuration
+		: 1.0f;
+	UpdatePossessionProgressWidget(TargetActor, HoldProgress);
+	if (PossessionAimHoldElapsed >= PossessionAimHoldDuration)
+	{
+		bPossessionAimActive = false;
+		PossessionAimTarget = nullptr;
+		PossessionAimHoldElapsed = 0.0f;
+		HidePossessionProgressWidget();
+
+		SetPossessionAimZoomEnabled(false);
+		TryPossessTarget(TargetActor);
+	}
+}
+
+void AUTPPlayerController::CreatePossessionProgressWidget()
+{
+	if (!IsLocalController() || PossessionProgressWidget)
+	{
+		return;
+	}
+
+	PossessionProgressWidget = CreateWidget<UUTPPossessionProgressWidget>(
+		this,
+		UUTPPossessionProgressWidget::StaticClass());
+	if (PossessionProgressWidget)
+	{
+		// The overlay only renders feedback; it must never consume the right-click
+		// that drives the possession hold.
+		PossessionProgressWidget->SetVisibility(ESlateVisibility::HitTestInvisible);
+		PossessionProgressWidget->AddToViewport();
+	}
+}
+
+void AUTPPlayerController::CreateTutorialWidget()
+{
+	if (!IsLocalController() || TutorialWidget)
+	{
+		return;
+	}
+
+	TutorialWidget = CreateWidget<UUTPTutorialWidget>(this, UUTPTutorialWidget::StaticClass());
+	if (TutorialWidget)
+	{
+		TutorialWidget->SetVisibility(ESlateVisibility::Collapsed);
+		TutorialWidget->AddToViewport();
+	}
+}
+
+void AUTPPlayerController::UpdatePossessionProgressWidget(AActor* TargetActor, float Progress)
+{
+	if (!PossessionProgressWidget || !IsValid(TargetActor))
+	{
+		return;
+	}
+
+	const FBox TargetBounds = TargetActor->GetComponentsBoundingBox(true);
+	const FVector TargetCenter = TargetBounds.GetCenter();
+	FVector2D ScreenCenter;
+	if (!ProjectWorldLocationToScreen(TargetCenter, ScreenCenter, false))
+	{
+		HidePossessionProgressWidget();
+		return;
+	}
+
+	const float WorldRadius = FMath::Max(TargetBounds.GetExtent().Z, 50.0f);
+	FVector2D ScreenEdge;
+	float RingRadius = 72.0f;
+	if (ProjectWorldLocationToScreen(TargetCenter + FVector(0.0f, 0.0f, WorldRadius), ScreenEdge, false))
+	{
+		RingRadius = FMath::Clamp(FVector2D::Distance(ScreenCenter, ScreenEdge) + 24.0f, 56.0f, 160.0f);
+	}
+
+	const float ViewportScale = FMath::Max(UWidgetLayoutLibrary::GetViewportScale(this), KINDA_SMALL_NUMBER);
+	PossessionProgressWidget->ShowProgress(ScreenCenter / ViewportScale, RingRadius / ViewportScale, Progress);
+}
+
+void AUTPPlayerController::HidePossessionProgressWidget()
+{
+	if (PossessionProgressWidget)
+	{
+		PossessionProgressWidget->HideProgress();
+	}
+}
+
+void AUTPPlayerController::SetPossessionAimZoomEnabled(bool bEnabled)
+{
+	if (SharedCameraRig)
+	{
+		SharedCameraRig->SetPossessionAimZoomEnabled(bEnabled);
+	}
 }
 
 AActor* AUTPPlayerController::FindPossessionAimTarget() const
@@ -319,13 +512,49 @@ AActor* AUTPPlayerController::FindPossessionAimTarget() const
 		return nullptr;
 	}
 
+	// Soul focus is refreshed every frame using the same camera test, and it
+	// retains the Soul-specific maximum distance configured by the designer.
 	if (const AUTPSoulPawn* SoulPawn = Cast<AUTPSoulPawn>(CurrentPawn))
 	{
 		return SoulPawn->GetFocusedPossessableTarget();
 	}
 
+	return FindCameraPossessionTarget(CurrentPawn, PossessionAimTraceDistance);
+}
+
+void AUTPPlayerController::SetPossessionFocusTarget(AActor* NewTarget)
+{
+	if (PossessionFocusTarget.Get() == NewTarget)
+	{
+		return;
+	}
+
+	if (AActor* PreviousTarget = PossessionFocusTarget.Get())
+	{
+		if (PreviousTarget->GetClass()->ImplementsInterface(UTPPossessableInterface::StaticClass()))
+		{
+			ITPPossessableInterface::Execute_OnPossessionFocusChanged(PreviousTarget, false);
+		}
+	}
+
+	PossessionFocusTarget = nullptr;
+	if (IsValid(NewTarget) && NewTarget->GetClass()->ImplementsInterface(UTPPossessableInterface::StaticClass()) &&
+		ITPPossessableInterface::Execute_CanBePossessed(NewTarget, this))
+	{
+		PossessionFocusTarget = NewTarget;
+		ITPPossessableInterface::Execute_OnPossessionFocusChanged(NewTarget, true);
+	}
+}
+
+AActor* AUTPPlayerController::FindCameraPossessionTarget(const APawn* SearchOriginPawn, float MaxDistance) const
+{
+	if (!SearchOriginPawn || MaxDistance <= 0.0f)
+	{
+		return nullptr;
+	}
+
 	UWorld* World = GetWorld();
-	if (!World || !CurrentPawn->GetClass()->ImplementsInterface(UTPPossessableInterface::StaticClass()))
+	if (!World)
 	{
 		return nullptr;
 	}
@@ -334,50 +563,90 @@ AActor* AUTPPlayerController::FindPossessionAimTarget() const
 	FRotator ViewRotation;
 	GetPlayerViewPoint(ViewLocation, ViewRotation);
 
-	const FVector TraceStart = CurrentPawn->GetComponentsBoundingBox(true).GetCenter();
-	const FVector TraceEnd = TraceStart + ViewRotation.Vector() * PossessionAimTraceDistance;
-	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(BodyPossessionTrace), false, CurrentPawn);
-	TArray<FHitResult> HitResults;
-	World->SweepMultiByObjectType(
-		HitResults,
-		TraceStart,
-		TraceEnd,
-		FQuat::Identity,
-		FCollisionObjectQueryParams(ECC_Pawn),
-		FCollisionShape::MakeSphere(PossessionAimTraceRadius),
-		QueryParams);
-
-	for (const FHitResult& Hit : HitResults)
+	int32 ViewportWidth = 0;
+	int32 ViewportHeight = 0;
+	GetViewportSize(ViewportWidth, ViewportHeight);
+	if (ViewportWidth <= 0 || ViewportHeight <= 0)
 	{
-		if (Hit.bStartPenetrating)
-		{
-			continue;
-		}
+		return nullptr;
+	}
 
-		AActor* Candidate = Hit.GetActor();
-		if (!Candidate || Candidate == CurrentPawn ||
+	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(CameraPossessionTrace), false, SearchOriginPawn);
+	AActor* BestTarget = nullptr;
+	float BestViewAlignment = -1.0f;
+	float BestDistance = MaxDistance;
+	const FVector CameraForward = ViewRotation.Vector();
+	const FVector OriginLocation = SearchOriginPawn->GetComponentsBoundingBox(true).GetCenter();
+
+	for (TActorIterator<APawn> It(World); It; ++It)
+	{
+		APawn* Candidate = *It;
+		if (!Candidate || Candidate == SearchOriginPawn ||
 			!Candidate->GetClass()->ImplementsInterface(UTPPossessableInterface::StaticClass()) ||
 			!ITPPossessableInterface::Execute_CanBePossessed(Candidate, const_cast<AUTPPlayerController*>(this)))
 		{
 			continue;
 		}
 
-		// The object sweep ignores the floor; this thin Visibility ray retains
-		// normal wall occlusion before allowing a direct body-to-body transfer.
-		FHitResult SightHit;
-		const bool bBlocked = World->LineTraceSingleByChannel(
-			SightHit,
-			TraceStart,
-			Hit.ImpactPoint,
+		const FVector TargetLocation = Candidate->GetComponentsBoundingBox(true).GetCenter();
+		const FVector CameraToTarget = TargetLocation - ViewLocation;
+		const float CameraDistance = CameraToTarget.Length();
+		const float TargetDistance = FVector::Distance(OriginLocation, TargetLocation);
+		if (CameraDistance <= KINDA_SMALL_NUMBER || TargetDistance > MaxDistance)
+		{
+			continue;
+		}
+
+		const float ViewAlignment = FVector::DotProduct(CameraForward, CameraToTarget / CameraDistance);
+		if (ViewAlignment <= 0.0f)
+		{
+			continue;
+		}
+
+		FVector2D ScreenPosition;
+		if (!ProjectWorldLocationToScreen(TargetLocation, ScreenPosition, false) ||
+			ScreenPosition.X < 0.0f || ScreenPosition.X > ViewportWidth ||
+			ScreenPosition.Y < 0.0f || ScreenPosition.Y > ViewportHeight)
+		{
+			continue;
+		}
+
+		// The target must be visible from the active camera and reachable from
+		// the currently controlled Pawn without an intervening blocking object.
+		FHitResult CameraSightHit;
+		const bool bCameraBlocked = World->LineTraceSingleByChannel(
+			CameraSightHit,
+			ViewLocation,
+			TargetLocation,
 			ECC_Visibility,
 			QueryParams);
-		if (!bBlocked || SightHit.GetActor() == Candidate)
+		if (bCameraBlocked && CameraSightHit.GetActor() != Candidate)
 		{
-			return Candidate;
+			continue;
+		}
+
+		FHitResult PathHit;
+		const bool bPathBlocked = World->LineTraceSingleByChannel(
+			PathHit,
+			OriginLocation,
+			TargetLocation,
+			ECC_Visibility,
+			QueryParams);
+		if (!bPathBlocked || PathHit.GetActor() == Candidate)
+		{
+			// Prefer the target nearest the center of the camera; use distance as
+			// a deterministic tie-breaker for targets at the same view angle.
+			if (ViewAlignment > BestViewAlignment ||
+				(FMath::IsNearlyEqual(ViewAlignment, BestViewAlignment) && TargetDistance < BestDistance))
+			{
+				BestTarget = Candidate;
+				BestViewAlignment = ViewAlignment;
+				BestDistance = TargetDistance;
+			}
 		}
 	}
 
-	return nullptr;
+	return BestTarget;
 }
 
 void AUTPPlayerController::CreateRuntimeInputMapping()
@@ -408,7 +677,9 @@ void AUTPPlayerController::CreateRuntimeInputMapping()
 	RuntimeMappingContext->MapKey(LookAction, EKeys::MouseX);
 
 	FEnhancedActionKeyMapping& MouseYMapping = RuntimeMappingContext->MapKey(LookAction, EKeys::MouseY);
-	MouseYMapping.Modifiers.Add(NewObject<UInputModifierSwizzleAxis>(RuntimeMappingContext));
+	UInputModifierSwizzleAxis* MouseYSwizzle = NewObject<UInputModifierSwizzleAxis>(RuntimeMappingContext);
+	MouseYSwizzle->Order = EInputAxisSwizzle::YXZ;
+	MouseYMapping.Modifiers.Add(MouseYSwizzle);
 }
 
 void AUTPPlayerController::UpdateSharedCameraTarget(APawn* InPawn, bool bSnapToTarget)

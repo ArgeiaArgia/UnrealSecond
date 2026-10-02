@@ -45,6 +45,14 @@ protected:
     UPROPERTY(EditAnywhere, Category = "Puzzle Link")
     TArray<AAreaForceVolume*> TargetWindAreas;
 
+    /**
+     * Additional targets that follow this trigger's state. Assign any actor
+     * implementing TPToggleableInterface, such as doors, wind zones, water
+     * zones, or future on/off puzzle actors.
+     */
+    UPROPERTY(EditAnywhere, Category = "Puzzle Link", meta = (MustImplement = "/Script/UnrealTeamProject.TPToggleableInterface"))
+    TArray<TObjectPtr<AActor>> ToggleableTargets;
+
     int32 ValidOverlappingCount;
 
     void RefreshTriggerState();

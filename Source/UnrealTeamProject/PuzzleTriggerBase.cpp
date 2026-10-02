@@ -15,6 +15,7 @@ APuzzleTriggerBase::APuzzleTriggerBase()
     TriggerBox = CreateDefaultSubobject<UBoxComponent>(TEXT("TriggerBox"));
     RootComponent = TriggerBox;
     TriggerBox->SetCollisionProfileName(TEXT("OverlapAllDynamic"));
+    TriggerBox->SetCollisionResponseToChannel(ECC_GameTraceChannel4, ECR_Overlap);
 
     TriggerBox->OnComponentBeginOverlap.AddDynamic(this, &APuzzleTriggerBase::OnOverlapBegin);
     TriggerBox->OnComponentEndOverlap.AddDynamic(this, &APuzzleTriggerBase::OnOverlapEnd);
@@ -116,6 +117,17 @@ void APuzzleTriggerBase::ActivateTrigger()
         }
     }
 
+    for (AActor* ToggleableTarget : ToggleableTargets)
+    {
+        if (IsValid(ToggleableTarget)
+            && !HandledTargets.Contains(ToggleableTarget)
+            && ToggleableTarget->GetClass()->ImplementsInterface(UTPToggleableInterface::StaticClass()))
+        {
+            ITPToggleableInterface::Execute_SetToggleableEnabled(ToggleableTarget, true);
+            HandledTargets.Add(ToggleableTarget);
+        }
+    }
+
     AActor* GenericTarget = TargetDoor.Get();
     if (IsValid(GenericTarget) && !HandledTargets.Contains(GenericTarget) && GenericTarget->GetClass()->ImplementsInterface(UTPToggleableInterface::StaticClass()))
     {
@@ -160,6 +172,17 @@ void APuzzleTriggerBase::DeactivateTrigger()
         {
             Wind->DeactivateWind();
             HandledTargets.Add(Wind);
+        }
+    }
+
+    for (AActor* ToggleableTarget : ToggleableTargets)
+    {
+        if (IsValid(ToggleableTarget)
+            && !HandledTargets.Contains(ToggleableTarget)
+            && ToggleableTarget->GetClass()->ImplementsInterface(UTPToggleableInterface::StaticClass()))
+        {
+            ITPToggleableInterface::Execute_SetToggleableEnabled(ToggleableTarget, false);
+            HandledTargets.Add(ToggleableTarget);
         }
     }
 

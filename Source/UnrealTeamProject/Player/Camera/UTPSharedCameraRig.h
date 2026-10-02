@@ -25,6 +25,7 @@ public:
 	void CancelPossessionTransition();
 	bool IsPossessionTransitionActive() const;
 	FRotator GetCameraRigRotation() const;
+	void SetPossessionAimZoomEnabled(bool bEnabled);
 
 protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components")
@@ -51,6 +52,12 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Camera", meta=(ClampMin="0.0"))
 	float FollowLocationInterpSpeed = 18.0f;
 
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Camera|Possession Aim", meta=(ClampMin="0.0"))
+	float PossessionAimArmLength = 415.0f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Camera|Possession Aim", meta=(ClampMin="0.0"))
+	float PossessionAimZoomInterpSpeed = 60.0f;
+
 private:
 	TWeakObjectPtr<APlayerController> OwningPlayerController;
 	TWeakObjectPtr<APawn> FollowTarget;
@@ -58,5 +65,7 @@ private:
 	FVector PossessionTransitionStartLocation = FVector::ZeroVector;
 	float PossessionTransitionElapsed = 0.0f;
 	float PossessionTransitionDuration = 0.0f;
+	float DefaultArmLength = 450.0f;
 	bool bPossessionTransitionActive = false;
+	bool bPossessionAimZoomActive = false;
 };

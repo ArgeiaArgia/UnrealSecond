@@ -9,8 +9,8 @@
 namespace
 {
 	constexpr float DefaultCameraPitchDegrees = -60.0f;
-	constexpr float MinimumCameraPitchDegrees = -80.0f;
-	constexpr float MaximumCameraPitchDegrees = -35.0f;
+	constexpr float MinimumCameraPitchDegrees = -85.0f;
+	constexpr float MaximumCameraPitchDegrees = 20.0f;
 }
 
 AUTPSharedCameraRig::AUTPSharedCameraRig()
@@ -39,6 +39,7 @@ AUTPSharedCameraRig::AUTPSharedCameraRig()
 void AUTPSharedCameraRig::Initialize(APlayerController* InOwningPlayerController)
 {
 	OwningPlayerController = InOwningPlayerController;
+	DefaultArmLength = SpringArmComponent ? SpringArmComponent->TargetArmLength : DefaultArmLength;
 
 	// The shared camera starts above the character and stays within its
 	// overhead viewing range while the player looks around.
@@ -110,6 +111,11 @@ FRotator AUTPSharedCameraRig::GetCameraRigRotation() const
 	return GetActorRotation();
 }
 
+void AUTPSharedCameraRig::SetPossessionAimZoomEnabled(bool bEnabled)
+{
+	bPossessionAimZoomActive = bEnabled;
+}
+
 void AUTPSharedCameraRig::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
@@ -124,7 +130,14 @@ void AUTPSharedCameraRig::Tick(float DeltaSeconds)
 
 	SpringArmComponent->bEnableCameraLag = bEnableFollowLag;
 	SpringArmComponent->CameraLagSpeed = FollowLagSpeed;
-
+	const float TargetArmLength = bPossessionAimZoomActive
+		? PossessionAimArmLength
+		: DefaultArmLength;
+	SpringArmComponent->TargetArmLength = FMath::FInterpTo(
+		SpringArmComponent->TargetArmLength,
+		TargetArmLength,
+		DeltaSeconds,
+		PossessionAimZoomInterpSpeed);
 	if (bPossessionTransitionActive && PossessionTransitionTarget.IsValid())
 	{
 		PossessionTransitionElapsed = FMath::Min(

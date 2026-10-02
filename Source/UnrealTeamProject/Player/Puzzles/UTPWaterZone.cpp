@@ -14,6 +14,10 @@ AUTPWaterZone::AUTPWaterZone()
 	WaterVolume->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
 	WaterVolume->SetCollisionObjectType(ECC_WorldDynamic);
 	WaterVolume->SetCollisionResponseToAllChannels(ECR_Overlap);
+	// Every non-frog animal remains on the Pawn channel and is stopped at the
+	// water boundary. Frogs use the dedicated channel configured in DefaultEngine.
+	WaterVolume->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
+	WaterVolume->SetCollisionResponseToChannel(ECC_GameTraceChannel4, ECR_Overlap);
 	WaterVolume->SetGenerateOverlapEvents(true);
 }
 
@@ -23,6 +27,7 @@ void AUTPWaterZone::BeginPlay()
 
 	WaterVolume->OnComponentBeginOverlap.AddDynamic(this, &AUTPWaterZone::OnWaterVolumeBeginOverlap);
 	WaterVolume->OnComponentEndOverlap.AddDynamic(this, &AUTPWaterZone::OnWaterVolumeEndOverlap);
+	RefreshWaterCollision();
 }
 
 void AUTPWaterZone::Tick(float DeltaSeconds)
@@ -97,6 +102,7 @@ void AUTPWaterZone::SetWaterEnabled(bool bInEnabled)
 	}
 
 	bIsEnabled = bInEnabled;
+	RefreshWaterCollision();
 	if (!bIsEnabled)
 	{
 		const TArray<TWeakObjectPtr<AActor>> ActorsToRemove = ActiveActors.Array();
@@ -157,4 +163,19 @@ void AUTPWaterZone::RemoveWaterFromActor(AActor* OtherActor)
 	}
 
 	ExitWater_Implementation(OtherActor);
+}
+
+void AUTPWaterZone::RefreshWaterCollision()
+{
+	if (!WaterVolume)
+	{
+		return;
+	}
+
+	WaterVolume->SetCollisionResponseToChannel(
+		ECC_Pawn,
+		bIsEnabled ? ECR_Block : ECR_Ignore);
+	WaterVolume->SetCollisionResponseToChannel(
+		ECC_GameTraceChannel4,
+		bIsEnabled ? ECR_Overlap : ECR_Ignore);
 }

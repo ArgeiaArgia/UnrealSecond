@@ -10,4 +10,6 @@ class UNREALTEAMPROJECT_API AUTPGameModeBase : public AGameModeBase
 
 public:
 	AUTPGameModeBase();
+
+	virtual void FinishRestartPlayer(AController* NewPlayer, const FRotator& StartRotation) override;
 };

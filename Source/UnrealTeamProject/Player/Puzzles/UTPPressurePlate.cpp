@@ -28,11 +28,8 @@ bool IsInsidePlateBounds(const UBoxComponent* TriggerVolume, const AActor* Actor
 	// 포함하도록 충분한 상단 여유를 둡니다.
 	AcceptedExtent.Z += 260.0f;
 
-	// Capsule 가장자리만 플레이트에 닿는 경우는 눌림으로 인정하지 않습니다.
-	// 현재 맵의 0.5 스케일에서는 120uu가 월드 기준 60uu(거북이 Capsule 반지름)입니다.
-	constexpr float FootprintInset = 120.0f;
-	AcceptedExtent.X = FMath::Max(0.0f, AcceptedExtent.X - FootprintInset);
-	AcceptedExtent.Y = FMath::Max(0.0f, AcceptedExtent.Y - FootprintInset);
+	// 판 위에 올라선 경우에는 가장자리도 눌림으로 인정합니다.
+	// 단, 액터 중심이 판 외곽을 벗어난 옆면 위치라면 아래 X/Y 범위 검사에서 제외됩니다.
 
 	// Trigger의 상단 여유를 제외한 윗부분만 '판 위'로 판정합니다.
 	const float MinimumStandingHeight = TriggerVolume->GetUnscaledBoxExtent().Z - 80.0f;
@@ -55,6 +52,7 @@ AUTPPressurePlate::AUTPPressurePlate()
 	TriggerVolume->SetCollisionObjectType(ECC_WorldStatic);
 	TriggerVolume->SetCollisionResponseToAllChannels(ECR_Ignore);
 	TriggerVolume->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
+	TriggerVolume->SetCollisionResponseToChannel(ECC_GameTraceChannel4, ECR_Overlap);
 	TriggerVolume->SetGenerateOverlapEvents(true);
 
 	BlockingVolume = CreateDefaultSubobject<UBoxComponent>(TEXT("BlockingVolume"));
@@ -78,8 +76,8 @@ void AUTPPressurePlate::BeginPlay()
 	PlateMeshRestingLocation = PlateMesh ? PlateMesh->GetRelativeLocation() : FVector::ZeroVector;
 	BlockingVolumeRestingLocation = BlockingVolume ? BlockingVolume->GetRelativeLocation() : FVector::ZeroVector;
 
-	// 추가 대상이 지정된 발판은 단일 대상 자동 검색을 하지 않습니다.
-	if (!TargetDoor && TargetWindZones.IsEmpty())
+	// 대상이 지정된 발판은 단일 대상 자동 검색을 하지 않습니다.
+	if (!TargetDoor && TargetWindZones.IsEmpty() && ToggleableTargets.IsEmpty())
 	{
 		TArray<AActor*> ToggleableActors;
 		UGameplayStatics::GetAllActorsWithInterface(this, UTPToggleableInterface::StaticClass(), ToggleableActors);
@@ -175,17 +173,28 @@ void AUTPPressurePlate::UpdatePlateDepression(float DeltaSeconds)
 
 void AUTPPressurePlate::ApplyTargetState(bool bPressed)
 {
-	if (IsValid(TargetDoor) && TargetDoor->GetClass()->ImplementsInterface(UTPToggleableInterface::StaticClass()))
+	TSet<AActor*> AppliedTargets;
+	const auto ApplyTarget = [&AppliedTargets, bPressed](AActor* Target)
 	{
-		ITPToggleableInterface::Execute_SetToggleableEnabled(TargetDoor, bPressed);
-	}
+		if (IsValid(Target)
+			&& !AppliedTargets.Contains(Target)
+			&& Target->GetClass()->ImplementsInterface(UTPToggleableInterface::StaticClass()))
+		{
+			ITPToggleableInterface::Execute_SetToggleableEnabled(Target, bPressed);
+			AppliedTargets.Add(Target);
+		}
+	};
+
+	ApplyTarget(TargetDoor);
 
 	for (AActor* ToggleableActor : TargetWindZones)
 	{
-		if (IsValid(ToggleableActor) && ToggleableActor->GetClass()->ImplementsInterface(UTPToggleableInterface::StaticClass()))
-		{
-			ITPToggleableInterface::Execute_SetToggleableEnabled(ToggleableActor, bPressed);
-		}
+		ApplyTarget(ToggleableActor);
+	}
+
+	for (AActor* ToggleableActor : ToggleableTargets)
+	{
+		ApplyTarget(ToggleableActor);
 	}
 }
 
