@@ -14,7 +14,7 @@ class UNREALTEAMPROJECT_API AUTPPossessableCharacter : public ACharacter, public
 	GENERATED_BODY()
 
 public:
-	AUTPPossessableCharacter();
+	AUTPPossessableCharacter(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
 
 	virtual void BeginPlay() override;
 	virtual void PostInitializeComponents() override;

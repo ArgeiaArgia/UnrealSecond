@@ -2,23 +2,26 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
-#include "TutorialTrigger.generated.h"
+#include "UTPTutorialTrigger.generated.h"
 
 class UBoxComponent;
 
 /**
  * One-shot level trigger that replaces the currently shown tutorial prompt.
  * Place it in a level and set TutorialMessage on the actor instance.
+ * For an opening prompt, place the trigger around the player's spawn point.
  */
 UCLASS(Blueprintable)
-class UNREALTEAMPROJECT_API ATutorialTrigger : public AActor
+class UNREALTEAMPROJECT_API AUTPTutorialTrigger : public AActor
 {
 	GENERATED_BODY()
 
 public:
-	ATutorialTrigger();
+	AUTPTutorialTrigger();
 
 protected:
+	virtual void BeginPlay() override;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	TObjectPtr<UBoxComponent> TriggerBox;
 
@@ -44,5 +47,8 @@ protected:
 		const FHitResult& SweepResult);
 
 private:
+	void CheckInitialOverlaps();
+	void TryActivate(AActor* OtherActor);
+
 	bool bHasTriggered = false;
 };

@@ -5,6 +5,8 @@
 #include "UI/UTPPossessionProgressWidget.h"
 #include "UI/UTPTutorialWidget.h"
 #include "UTPSoulPawn.h"
+#include "UTPPossessionTargeting.h"
+#include "Animals/Flying/UTPFlyingAnimalCharacter.h"
 
 #include "Camera/PlayerCameraManager.h"
 #include "DrawDebugHelpers.h"
@@ -26,7 +28,6 @@ AUTPPlayerController::AUTPPlayerController()
 {
 	PossessionComponent = CreateDefaultSubobject<UTPPossessionComponent>(TEXT("PossessionComponent"));
 	bAutoManageActiveCameraTarget = false;
-	InitialTutorialMessage = NSLOCTEXT("Tutorial", "InitialMovementPrompt", "WASD로 움직여 땅으로 올라가세요.");
 
 	static ConstructorHelpers::FObjectFinder<UInputMappingContext> MappingContextAsset(
 		TEXT("/Game/Input/IMC_Player.IMC_Player"));
@@ -83,11 +84,6 @@ void AUTPPlayerController::BeginPlay()
 
 	CreateRuntimeInputMapping();
 	CreatePossessionProgressWidget();
-	CreateTutorialWidget();
-	if (!InitialTutorialMessage.IsEmpty())
-	{
-		ShowTutorialMessage(InitialTutorialMessage);
-	}
 
 	if (RuntimeMappingContext)
 	{
@@ -336,7 +332,7 @@ void AUTPPlayerController::UpdatePossessionFocus()
 		GetPlayerViewPoint(ViewLocation, ViewRotation);
 
 		const FVector DebugEnd = NewTarget
-			? NewTarget->GetComponentsBoundingBox(true).GetCenter()
+			? UTPPossessionTargeting::GetFocusLocation(*NewTarget)
 			: ViewLocation + ViewRotation.Vector() * PossessionAimTraceDistance;
 		const FColor DebugColor = NewTarget ? FColor::Green : FColor::Cyan;
 		DrawDebugLine(GetWorld(), ViewLocation, DebugEnd, DebugColor, false, 0.0f, 0, 1.5f);
@@ -395,13 +391,16 @@ void AUTPPlayerController::UpdatePossessionAim(float DeltaTime)
 	FVector ViewLocation;
 	FRotator ViewRotation;
 	GetPlayerViewPoint(ViewLocation, ViewRotation);
-	const FVector TargetLocation = TargetActor->GetComponentsBoundingBox(true).GetCenter();
-	if (TargetLocation.Equals(ViewLocation))
+	const FVector TargetLocation = UTPPossessionTargeting::GetFocusLocation(*TargetActor);
+	// Control rotation orbits the camera around the shared rig. Aim from that
+	// pivot so rotating or zooming the spring arm keeps the body at screen center.
+	const FVector AimOrigin = SharedCameraRig ? SharedCameraRig->GetActorLocation() : ViewLocation;
+	if (TargetLocation.Equals(AimOrigin))
 	{
 		return;
 	}
 
-	FRotator DesiredRotation = (TargetLocation - ViewLocation).Rotation();
+	FRotator DesiredRotation = (TargetLocation - AimOrigin).Rotation();
 	DesiredRotation.Roll = 0.0f;
 	SetControlRotation(FMath::RInterpTo(
 		GetControlRotation(),
@@ -467,7 +466,7 @@ void AUTPPlayerController::UpdatePossessionProgressWidget(AActor* TargetActor, f
 		return;
 	}
 
-	const FBox TargetBounds = TargetActor->GetComponentsBoundingBox(true);
+	const FBox TargetBounds = UTPPossessionTargeting::GetBodyBounds(*TargetActor);
 	const FVector TargetCenter = TargetBounds.GetCenter();
 	FVector2D ScreenCenter;
 	if (!ProjectWorldLocationToScreen(TargetCenter, ScreenCenter, false))
@@ -571,12 +570,16 @@ AActor* AUTPPlayerController::FindCameraPossessionTarget(const APawn* SearchOrig
 		return nullptr;
 	}
 
-	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(CameraPossessionTrace), false, SearchOriginPawn);
+	// Coarse building collision can cover open spaces around a visible animal.
+	// Camera visibility must follow the mesh surface instead of that proxy.
+	FCollisionQueryParams CameraQueryParams(SCENE_QUERY_STAT(CameraPossessionTrace), true, SearchOriginPawn);
+	FCollisionQueryParams BodyQueryParams(SCENE_QUERY_STAT(BodyPossessionTrace), false, SearchOriginPawn);
 	AActor* BestTarget = nullptr;
 	float BestViewAlignment = -1.0f;
 	float BestDistance = MaxDistance;
 	const FVector CameraForward = ViewRotation.Vector();
-	const FVector OriginLocation = SearchOriginPawn->GetComponentsBoundingBox(true).GetCenter();
+	const FVector OriginLocation = UTPPossessionTargeting::GetFocusLocation(*SearchOriginPawn);
+	const bool bRequireBodySight = !SearchOriginPawn->IsA(AUTPFlyingAnimalCharacter::StaticClass());
 
 	for (TActorIterator<APawn> It(World); It; ++It)
 	{
@@ -588,7 +591,7 @@ AActor* AUTPPlayerController::FindCameraPossessionTarget(const APawn* SearchOrig
 			continue;
 		}
 
-		const FVector TargetLocation = Candidate->GetComponentsBoundingBox(true).GetCenter();
+		const FVector TargetLocation = UTPPossessionTargeting::GetFocusLocation(*Candidate);
 		const FVector CameraToTarget = TargetLocation - ViewLocation;
 		const float CameraDistance = CameraToTarget.Length();
 		const float TargetDistance = FVector::Distance(OriginLocation, TargetLocation);
@@ -611,27 +614,28 @@ AActor* AUTPPlayerController::FindCameraPossessionTarget(const APawn* SearchOrig
 			continue;
 		}
 
-		// The target must be visible from the active camera and reachable from
-		// the currently controlled Pawn without an intervening blocking object.
+		// The active camera must have a clear view of the selected body.
 		FHitResult CameraSightHit;
 		const bool bCameraBlocked = World->LineTraceSingleByChannel(
 			CameraSightHit,
 			ViewLocation,
 			TargetLocation,
 			ECC_Visibility,
-			QueryParams);
+			CameraQueryParams);
 		if (bCameraBlocked && CameraSightHit.GetActor() != Candidate)
 		{
 			continue;
 		}
 
 		FHitResult PathHit;
-		const bool bPathBlocked = World->LineTraceSingleByChannel(
+		// A flying animal's low body point can be below a platform edge even
+		// while the overhead camera sees the target. Use camera sight for it.
+		const bool bPathBlocked = bRequireBodySight && World->LineTraceSingleByChannel(
 			PathHit,
 			OriginLocation,
 			TargetLocation,
 			ECC_Visibility,
-			QueryParams);
+			BodyQueryParams);
 		if (!bPathBlocked || PathHit.GetActor() == Candidate)
 		{
 			// Prefer the target nearest the center of the camera; use distance as

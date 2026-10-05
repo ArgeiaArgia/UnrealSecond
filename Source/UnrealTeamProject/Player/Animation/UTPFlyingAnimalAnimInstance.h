@@ -42,7 +42,7 @@ protected:
 	virtual bool IsAbilityActive(const APawn* PawnOwner) const override;
 
 private:
-	bool bWasFlying = false;
+	bool bWasAirborne = false;
 
 	void ResetFlyingAnimationState();
 };

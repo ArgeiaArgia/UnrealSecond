@@ -9,6 +9,7 @@
 #include "Components/UTPPossessionComponent.h"
 #include "UTPPossessableInterface.h"
 #include "UTPPlayerController.h"
+#include "UTPPossessionTargeting.h"
 
 #include "Engine/World.h"
 #include "DrawDebugHelpers.h"
@@ -341,7 +342,7 @@ void AUTPSoulPawn::UpdateFocusedTarget()
 	if (bDrawPossessionTrace)
 	{
 		const FVector DebugEnd = NewTarget
-			? NewTarget->GetComponentsBoundingBox(true).GetCenter()
+			? UTPPossessionTargeting::GetFocusLocation(*NewTarget)
 			: ViewLocation + ViewRotation.Vector() * PossessionTraceDistance;
 		const FColor DebugColor = NewTarget ? FColor::Green : FColor::Cyan;
 		DrawDebugLine(World, ViewLocation, DebugEnd, DebugColor, false, 0.0f, 0, 1.5f);

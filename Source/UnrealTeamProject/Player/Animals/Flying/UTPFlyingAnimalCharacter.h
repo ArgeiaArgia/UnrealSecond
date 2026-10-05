@@ -5,6 +5,7 @@
 #include "UTPFlyingAnimalCharacter.generated.h"
 
 class UInputAction;
+class UTPFlyingAnimalMovementComponent;
 
 USTRUCT()
 struct FUTPWindSourceState
@@ -28,7 +29,8 @@ enum class EUTPFlightState : uint8
 	Takeoff UMETA(DisplayName="Takeoff"),
 	WindRide UMETA(DisplayName="Wind Ride"),
 	Glide UMETA(DisplayName="Glide"),
-	Landing UMETA(DisplayName="Landing")
+	Landing UMETA(DisplayName="Landing"),
+	Falling UMETA(DisplayName="Falling")
 };
 
 /** Wind-dependent flying animal used by the FlyingFox asset. */
@@ -39,14 +41,17 @@ class UNREALTEAMPROJECT_API AUTPFlyingAnimalCharacter
 {
 	GENERATED_BODY()
 
+	friend class UTPFlyingAnimalMovementComponent;
+
 public:
-	AUTPFlyingAnimalCharacter();
+	AUTPFlyingAnimalCharacter(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
 
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;
 	virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
 	virtual void Move(const FInputActionValue& Value) override;
 	virtual void StartJump() override;
+	virtual void Landed(const FHitResult& Hit) override;
 	virtual void OnPossessedBySoul_Implementation(APawn* SoulPawn) override;
 	virtual void OnReleasedFromSoul_Implementation(APawn* SoulPawn) override;
 	virtual bool CanReleaseFromSoul_Implementation() const override;
@@ -90,20 +95,7 @@ protected:
 	float MaxLateralSpeed = 180.0f;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Animal|Flying", meta=(ClampMin="0.0"))
-	float GlideSinkSpeed = 220.0f;
-
-	/** Height kept above nearby ground while gliding without a wind current. */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Animal|Flying|Hover", meta=(ClampMin="0.0"))
-	float GroundHoverHeight = 30.0f;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Animal|Flying|Hover", meta=(ClampMin="0.0"))
-	float GroundHoverTraceDistance = 250.0f;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Animal|Flying|Hover", meta=(ClampMin="0.0"))
-	float GroundHoverRiseSpeed = 180.0f;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Animal|Flying|Hover", meta=(ClampMin="0.0"))
-	float GroundHoverCorrectionStrength = 6.0f;
+	float GlideSinkSpeed = 100.0f;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Animal|Flying", meta=(ClampMin="0.0"))
 	float TakeoffSpeed = 350.0f;
@@ -113,12 +105,6 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Animal|Flying", meta=(ClampMin="0.0"))
 	float LandingStabilizationTime = 0.25f;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Animal|Flying")
-	bool bRequireLandingTag = true;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Animal|Flying")
-	FName LandingPlatformTag = TEXT("BatLanding");
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Animal|Flying", meta=(ClampMin="0.0"))
 	float AbilityGlideDuration = 0.75f;
@@ -145,13 +131,16 @@ protected:
 	bool bIsAbilityActive = false;
 
 	float GetDesiredFlightVerticalVelocity() const;
-	bool TryGetGroundDistance(float& OutDistance) const;
-	bool IsOnValidLandingSurface() const;
+	bool IsOnWalkableGround() const;
 	void BeginLanding();
 
 private:
 	float RemainingLandingTime = 0.0f;
 	float RemainingAbilityTime = 0.0f;
+	bool bSettlingAfterRelease = false;
+	bool bWasPhysicsWithNoControllerEnabled = false;
+
+	void StopSettlingAfterRelease();
 
 	UPROPERTY(Transient)
 	TMap<TWeakObjectPtr<AActor>, FUTPWindSourceState> ActiveWindSources;
@@ -159,4 +148,5 @@ private:
 	void UpdateFlightState(float DeltaSeconds);
 	void HandleAnimalAbilityStarted();
 	void RebuildWindState();
+	void BeginWindExitFall();
 };

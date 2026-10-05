@@ -48,7 +48,7 @@ public:
 
 	/**
 	 * Returns whether the current body can be left behind at this moment.
-	 * Flying animals use this to prevent leaving a body suspended in mid-air.
+	 * Characters can use this to defer a transfer during an unfinished action.
 	 */
 	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category="Possession")
 	bool CanReleaseFromSoul() const;

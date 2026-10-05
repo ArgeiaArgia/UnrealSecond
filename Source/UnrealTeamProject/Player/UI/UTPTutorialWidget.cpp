@@ -6,10 +6,17 @@
 #include "Components/CanvasPanelSlot.h"
 #include "Components/TextBlock.h"
 
+TSharedRef<SWidget> UUTPTutorialWidget::RebuildWidget()
+{
+	// The root must exist before UUserWidget builds its Slate content; creating
+	// it in NativeConstruct leaves the displayed content as an empty spacer.
+	BuildLayout();
+	return Super::RebuildWidget();
+}
+
 void UUTPTutorialWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
-	BuildLayout();
 
 	if (CurrentMessage.IsEmpty())
 	{

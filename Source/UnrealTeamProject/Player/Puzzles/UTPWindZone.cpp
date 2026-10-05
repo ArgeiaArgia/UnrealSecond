@@ -1,6 +1,8 @@
 #include "UTPWindZone.h"
 
 #include "Components/BoxComponent.h"
+#include "Components/ArrowComponent.h"
+#include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Math/RotationMatrix.h"
 #include "NiagaraComponent.h"
@@ -15,15 +17,35 @@ AUTPWindZone::AUTPWindZone()
 {
 	PrimaryActorTick.bCanEverTick = true;
 
+	WindOrigin = CreateDefaultSubobject<USceneComponent>(TEXT("WindOrigin"));
+	SetRootComponent(WindOrigin);
+
 	WindVolume = CreateDefaultSubobject<UBoxComponent>(TEXT("WindVolume"));
-	SetRootComponent(WindVolume);
+	WindVolume->SetupAttachment(WindOrigin);
 	WindVolume->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
 	WindVolume->SetCollisionObjectType(ECC_WorldDynamic);
 	WindVolume->SetCollisionResponseToAllChannels(ECR_Overlap);
 	WindVolume->SetGenerateOverlapEvents(true);
 
+#if WITH_EDITORONLY_DATA
+	WindDirectionArrow = CreateEditorOnlyDefaultSubobject<UArrowComponent>(TEXT("WindDirectionArrow"));
+	if (WindDirectionArrow)
+	{
+		WindDirectionArrow->SetupAttachment(WindOrigin);
+		WindDirectionArrow->SetAbsolute(false, true, true);
+		WindDirectionArrow->SetArrowFColor(FColor::Cyan);
+		WindDirectionArrow->SetArrowSize(2.0f);
+		WindDirectionArrow->SetTreatAsASprite(false);
+		WindDirectionArrow->SetUseInEditorScaling(false);
+		WindDirectionArrow->SetIsVisualizationComponent(true);
+		WindDirectionArrow->SetHiddenInGame(true);
+		WindDirectionArrow->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	}
+#endif
+
 	WindOutletMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("WindOutletMesh"));
-	WindOutletMesh->SetupAttachment(WindVolume);
+	WindOutletMesh->SetupAttachment(WindOrigin);
+	WindOutletMesh->SetUsingAbsoluteScale(true);
 	WindOutletMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	WindOutletMesh->SetGenerateOverlapEvents(false);
 
@@ -31,9 +53,8 @@ AUTPWindZone::AUTPWindZone()
 	WindVisual->SetupAttachment(WindVolume);
 	WindVisual->SetAutoActivate(true);
 	WindVisual->SetCastShadow(false);
-	// WindDirection is a world-space gameplay vector, so the visual must not
-	// inherit a parent transform that could make it appear to track the camera.
-	WindVisual->SetUsingAbsoluteRotation(true);
+	// The wind direction and its guide rotate with the zone.
+	WindVisual->SetUsingAbsoluteRotation(false);
 
 	static ConstructorHelpers::FObjectFinder<UNiagaraSystem> BoundaryCylinderSystem(
 		TEXT("/Game/_Art/NiagaraExamples/FX_Misc/NS_Boundary_Cylinder.NS_Boundary_Cylinder"));
@@ -50,6 +71,7 @@ void AUTPWindZone::BeginPlay()
 	CreateDirectionalWindVisualSystem();
 	WindVolume->OnComponentBeginOverlap.AddDynamic(this, &AUTPWindZone::OnWindVolumeBeginOverlap);
 	WindVolume->OnComponentEndOverlap.AddDynamic(this, &AUTPWindZone::OnWindVolumeEndOverlap);
+	RefreshWindVolume();
 	RefreshWindVisual();
 	SetWindVisualEnabled(bEnabled);
 }
@@ -92,7 +114,11 @@ void AUTPWindZone::CreateDirectionalWindVisualSystem()
 void AUTPWindZone::OnConstruction(const FTransform& Transform)
 {
 	Super::OnConstruction(Transform);
+	RefreshWindVolume();
 	RefreshWindVisual();
+#if WITH_EDITORONLY_DATA
+	RefreshWindDirectionArrow();
+#endif
 }
 
 void AUTPWindZone::Tick(float DeltaSeconds)
@@ -146,16 +172,103 @@ void AUTPWindZone::SetWindEnabled(bool bInEnabled)
 	}
 }
 
+float AUTPWindZone::GetWindVolumeHalfLength() const
+{
+	if (!WindVolume || WindDirection.IsNearlyZero())
+	{
+		return 0.0f;
+	}
+
+	const FVector WorldDirection = GetActorTransform().TransformVectorNoScale(WindDirection).GetSafeNormal();
+	const FVector Direction = WindVolume->GetComponentTransform().InverseTransformVectorNoScale(WorldDirection);
+
+	// Intersect the center line with the box faces. Projecting the corners onto
+	// the direction would overestimate the reach for a diagonal wind corridor.
+	const FVector BoxExtent = WindVolume->GetScaledBoxExtent().GetAbs();
+	float HalfLength = TNumericLimits<float>::Max();
+	for (int32 Axis = 0; Axis < 3; ++Axis)
+	{
+		const float AxisDirection = FMath::Abs(Direction[Axis]);
+		if (AxisDirection > KINDA_SMALL_NUMBER)
+		{
+			HalfLength = FMath::Min(HalfLength, static_cast<float>(BoxExtent[Axis] / AxisDirection));
+		}
+	}
+	return HalfLength;
+}
+
+void AUTPWindZone::RefreshWindVolume()
+{
+	if (!WindVolume)
+	{
+		return;
+	}
+
+	// Placed actors can retain the old serialized parent even after the native
+	// hierarchy changes. Migrate before moving the box, preserving the outlet's
+	// authored world transform instead of carrying it along with the volume.
+	if (WindOrigin && WindOutletMesh && WindOutletMesh->GetAttachParent() != WindOrigin)
+	{
+		const FTransform OutletWorldTransform = WindOutletMesh->GetComponentTransform();
+		WindOutletMesh->SetUsingAbsoluteScale(true);
+		WindOutletMesh->AttachToComponent(WindOrigin, FAttachmentTransformRules::KeepWorldTransform);
+		WindOutletMesh->SetWorldTransform(OutletWorldTransform);
+	}
+
+	// The box remains centered on its own component, while the actor pivot is
+	// its inlet. Increasing the extent moves only the center and downstream end.
+	const FVector WorldDirection = GetActorTransform().TransformVectorNoScale(WindDirection).GetSafeNormal();
+	WindVolume->SetWorldLocation(GetActorLocation() + WorldDirection * GetWindVolumeHalfLength());
+}
+
+#if WITH_EDITORONLY_DATA
+void AUTPWindZone::RefreshWindDirectionArrow()
+{
+	if (!WindDirectionArrow || !WindVolume)
+	{
+		return;
+	}
+
+	const FVector Direction = WindDirection.GetSafeNormal();
+	const float HalfLength = GetWindVolumeHalfLength();
+	WindGuideLength = HalfLength * 2.0f;
+	if (WindGuideLength <= KINDA_SMALL_NUMBER)
+	{
+		WindDirectionArrow->SetVisibility(false);
+		return;
+	}
+
+	const FVector WorldDirection = GetActorTransform().TransformVectorNoScale(Direction);
+	WindDirectionArrow->SetWorldLocation(GetActorLocation());
+	// Absolute rotation avoids mirrored/nonuniform parent scales skewing the
+	// guide. OnConstruction updates it whenever the zone is edited or rotated.
+	WindDirectionArrow->SetUsingAbsoluteRotation(true);
+	WindDirectionArrow->SetWorldRotation(WorldDirection.Rotation());
+	WindDirectionArrow->SetWorldScale3D(FVector::OneVector);
+	// UArrowComponent multiplies ArrowLength by ArrowSize when rendering.
+	const float ArrowSize = FMath::Clamp(WindGuideLength / 100.0f, 0.01f, 2.0f);
+	WindDirectionArrow->SetArrowSize(ArrowSize);
+	WindDirectionArrow->SetArrowLength(WindGuideLength / ArrowSize);
+	WindDirectionArrow->SetVisibility(WindGuideLength > KINDA_SMALL_NUMBER);
+}
+#endif
+
 void AUTPWindZone::RefreshWindVisual()
 {
+	// Reapply for existing Blueprint instances that saved the old inherited-scale
+	// setting. Keep the mesh's own scale while resizing the wind volume.
+	if (WindOutletMesh)
+	{
+		WindOutletMesh->SetUsingAbsoluteScale(true);
+	}
+
 	if (!WindVisual || !WindVolume)
 	{
 		return;
 	}
 
 	const FVector BoxExtent = WindVolume->GetUnscaledBoxExtent();
-	const FVector LocalWindDirectionRaw = GetActorTransform()
-		.InverseTransformVectorNoScale(WindDirection.GetSafeNormal());
+	const FVector LocalWindDirectionRaw = WindDirection.GetSafeNormal();
 	const FVector LocalWindDirection = LocalWindDirectionRaw.IsNearlyZero()
 		? FVector::UpVector
 		: LocalWindDirectionRaw.GetSafeNormal();
@@ -184,7 +297,8 @@ void AUTPWindZone::RefreshWindVisual()
 	}
 
 	WindVisual->SetRelativeLocation(WindVisualOffset);
-	WindVisual->SetWorldRotation(FRotationMatrix::MakeFromZ(WindDirection.GetSafeNormal()).Rotator());
+	WindVisual->SetUsingAbsoluteRotation(false);
+	WindVisual->SetRelativeRotation(FRotationMatrix::MakeFromZ(LocalWindDirection).Rotator());
 	WindVisual->SetVariableFloat(TEXT("User.Radius"), Radius * WindVisualRadiusScale);
 	WindVisual->SetVariableFloat(TEXT("User.Height"), HalfLength * 2.0f * WindVisualHeightScale);
 	WindVisual->SetVariableLinearColor(TEXT("User.Color"), WindVisualColor);
@@ -248,7 +362,7 @@ void AUTPWindZone::ApplyWindToActor(AActor* OtherActor)
 		return;
 	}
 
-	const FVector Direction = WindDirection.GetSafeNormal();
+	const FVector Direction = GetActorTransform().TransformVectorNoScale(WindDirection).GetSafeNormal();
 	ITPWindReceiverInterface::Execute_EnterWindZone(
 		OtherActor,
 		this,

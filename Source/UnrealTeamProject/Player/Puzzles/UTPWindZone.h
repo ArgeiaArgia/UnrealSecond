@@ -5,6 +5,8 @@
 #include "UTPWindZone.generated.h"
 
 class UBoxComponent;
+class USceneComponent;
+class UArrowComponent;
 class UNiagaraComponent;
 class UNiagaraSystem;
 class UStaticMeshComponent;
@@ -32,10 +34,24 @@ public:
 	virtual bool IsToggleableEnabled_Implementation() const override;
 
 protected:
+	/** Actor pivot at the wind inlet; the volume extends forward from here. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Wind")
+	TObjectPtr<USceneComponent> WindOrigin;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Wind")
 	TObjectPtr<UBoxComponent> WindVolume;
 
-	/** Optional outlet model, such as a vent or blower. Assign its Static Mesh in the component details. */
+#if WITH_EDITORONLY_DATA
+	/** Editor-only guide from the volume's entry to its exit along the wind direction. */
+	UPROPERTY(VisibleAnywhere, Category="Wind|Visual")
+	TObjectPtr<UArrowComponent> WindDirectionArrow;
+
+	/** Length of the active corridor through its center, including actor scale. */
+	UPROPERTY(VisibleInstanceOnly, Transient, Category="Wind|Visual", meta=(Units="cm"))
+	float WindGuideLength = 0.0f;
+#endif
+
+	/** Optional outlet model. Its component scale is independent of the wind volume and actor scale. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Wind|Visual")
 	TObjectPtr<UStaticMeshComponent> WindOutletMesh;
 
@@ -47,6 +63,7 @@ protected:
 	UPROPERTY(Transient)
 	TObjectPtr<UNiagaraSystem> DirectionalWindVisualSystem;
 
+	/** Local-space direction: +X follows the wind zone's forward axis. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Wind")
 	FVector WindDirection = FVector::ForwardVector;
 
@@ -103,6 +120,11 @@ private:
 	void ApplyWindToActor(AActor* OtherActor);
 	void RemoveWindFromActor(AActor* OtherActor);
 	void CreateDirectionalWindVisualSystem();
+	float GetWindVolumeHalfLength() const;
+	void RefreshWindVolume();
 	void RefreshWindVisual();
+#if WITH_EDITORONLY_DATA
+	void RefreshWindDirectionArrow();
+#endif
 	void SetWindVisualEnabled(bool bInEnabled);
 };

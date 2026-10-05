@@ -21,6 +21,7 @@ public:
 	void HideMessage();
 
 protected:
+	virtual TSharedRef<SWidget> RebuildWidget() override;
 	virtual void NativeConstruct() override;
 
 private:

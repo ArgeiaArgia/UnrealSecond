@@ -11,7 +11,8 @@
 #include "UObject/ConstructorHelpers.h"
 #include "UTPPlayerController.h"
 
-AUTPPossessableCharacter::AUTPPossessableCharacter()
+AUTPPossessableCharacter::AUTPPossessableCharacter(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
 {
 	PrimaryActorTick.bCanEverTick = false;
 	AutoPossessAI = EAutoPossessAI::PlacedInWorldOrSpawned;

@@ -3,6 +3,8 @@
 #include "../UTPPlayerController.h"
 #include "../UTPPossessableInterface.h"
 #include "../UTPSoulPawn.h"
+#include "../UTPPossessionTargeting.h"
+#include "../Animals/Flying/UTPFlyingAnimalCharacter.h"
 
 #include "GameFramework/Pawn.h"
 #include "Engine/World.h"
@@ -185,7 +187,10 @@ bool UTPPossessionComponent::TryPossessTarget(AActor* TargetActor)
 		return false;
 	}
 
-	if (!ITPPossessableInterface::Execute_CanReleaseFromSoul(CurrentPawn))
+	// Flying animals can always transfer, including when a child Blueprint
+	// still overrides the old grounded-only release policy.
+	if (!CurrentPawn->IsA(AUTPFlyingAnimalCharacter::StaticClass()) &&
+		!ITPPossessableInterface::Execute_CanReleaseFromSoul(CurrentPawn))
 	{
 		return false;
 	}
@@ -225,7 +230,8 @@ bool UTPPossessionComponent::ReturnToSoul()
 
 	APawn* PreviousBody = CurrentPawn;
 
-	if (PreviousBody->GetClass()->ImplementsInterface(UTPPossessableInterface::StaticClass()) &&
+	if (!PreviousBody->IsA(AUTPFlyingAnimalCharacter::StaticClass()) &&
+		PreviousBody->GetClass()->ImplementsInterface(UTPPossessableInterface::StaticClass()) &&
 		!ITPPossessableInterface::Execute_CanReleaseFromSoul(PreviousBody))
 	{
 		return false;
@@ -476,10 +482,8 @@ bool UTPPossessionComponent::BeginPossessionTransition(APawn* TargetPawn)
 
 	PlayerController->SetIgnoreMoveInput(true);
 	PlayerController->SetIgnoreLookInput(true);
-	// The overlap begins on the outside of a body. Aim at its bounds center so
-	// the fade visually reads as the soul entering that body instead of simply
-	// disappearing at the contact point.
-	const FVector PossessionDestination = TargetPawn->GetComponentsBoundingBox(true).GetCenter();
+	// Use the same visible body center as selection, camera aim and feedback.
+	const FVector PossessionDestination = UTPPossessionTargeting::GetFocusLocation(*TargetPawn);
 	CurrentSoulPawn->BeginPossessionVanish(PossessionDestination, PossessionTransitionSeconds);
 	PlayerController->BeginPossessionCameraTransition(TargetPawn, PossessionTransitionSeconds);
 

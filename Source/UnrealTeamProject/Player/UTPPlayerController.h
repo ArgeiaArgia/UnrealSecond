@@ -32,7 +32,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Possession")
 	bool TogglePossession();
 
-	/** Replaces the currently shown tutorial prompt. Intended for TutorialTrigger actors and level Blueprints. */
+	/** Replaces the currently shown tutorial prompt. Intended for UTPTutorialTrigger actors and level Blueprints. */
 	UFUNCTION(BlueprintCallable, Category="Tutorial")
 	void ShowTutorialMessage(const FText& Message);
 
@@ -49,7 +49,8 @@ public:
 
 	// Finds the possessable Pawn closest to the center of the active camera view.
 	// Candidates must be visible on screen, within MaxDistance of the controlled
-	// Pawn, and have a clear path from that Pawn.
+	// Pawn, and visible from the camera. Ground animals also require a clear
+	// path from the body; flying animals use the camera's sight line.
 	AActor* FindCameraPossessionTarget(const APawn* SearchOriginPawn, float MaxDistance) const;
 
 protected:
@@ -101,10 +102,6 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UUTPTutorialWidget> TutorialWidget;
-
-	/** Prompt shown automatically when the level starts. Clear this in the controller Blueprint to disable it. */
-	UPROPERTY(EditDefaultsOnly, Category="Tutorial", meta=(MultiLine="true"))
-	FText InitialTutorialMessage;
 
 	bool bPossessionAimActive = false;
 	float PossessionAimHoldElapsed = 0.0f;

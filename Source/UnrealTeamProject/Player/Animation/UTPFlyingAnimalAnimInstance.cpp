@@ -5,7 +5,7 @@ void UTPFlyingAnimalAnimInstance::NativeInitializeAnimation()
 	Super::NativeInitializeAnimation();
 
 	ResetFlyingAnimationState();
-	bWasFlying = false;
+	bWasAirborne = false;
 }
 
 void UTPFlyingAnimalAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
@@ -17,7 +17,7 @@ void UTPFlyingAnimalAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	if (!IsValid(FlyingAnimal))
 	{
 		ResetFlyingAnimationState();
-		bWasFlying = false;
+		bWasAirborne = false;
 		return;
 	}
 
@@ -29,8 +29,8 @@ void UTPFlyingAnimalAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 
 	// This pulse drives a transition into the landing state. The landing state
 	// itself remains active until FlightState returns to Perched.
-	bJustLanded = bWasFlying && !bIsFlying && FlightState == EUTPFlightState::Landing;
-	bWasFlying = bIsFlying;
+	bJustLanded = bWasAirborne && FlightState == EUTPFlightState::Landing;
+	bWasAirborne = bIsFlying || FlightState == EUTPFlightState::Falling;
 }
 
 bool UTPFlyingAnimalAnimInstance::IsAbilityActive(const APawn* PawnOwner) const

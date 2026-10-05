@@ -1,15 +1,17 @@
 #include "UTPFlyingAnimalCharacter.h"
+#include "UTPFlyingAnimalMovementComponent.h"
 
 #include "../../Animation/UTPFlyingAnimalAnimInstance.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "EnhancedInputComponent.h"
-#include "Engine/World.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "InputAction.h"
 #include "UObject/ConstructorHelpers.h"
 
-AUTPFlyingAnimalCharacter::AUTPFlyingAnimalCharacter()
+AUTPFlyingAnimalCharacter::AUTPFlyingAnimalCharacter(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer.SetDefaultSubobjectClass<UTPFlyingAnimalMovementComponent>(
+		ACharacter::CharacterMovementComponentName))
 {
 	PrimaryActorTick.bCanEverTick = true;
 	PrimaryActorTick.bStartWithTickEnabled = true;
@@ -93,15 +95,9 @@ void AUTPFlyingAnimalCharacter::Tick(float DeltaSeconds)
 
 	if (UCharacterMovementComponent* Movement = GetCharacterMovement())
 	{
-		// CharacterMovement owns horizontal steering and collision response.  Only
-		// the vertical velocity is authored here, so a wall cannot be repeatedly
-		// pushed into by a manually forced flight vector.
+		// The flight movement component applies descent during movement physics,
+		// keeping it independent of horizontal steering and braking.
 		Movement->SetMovementMode(MOVE_Flying);
-		Movement->Velocity.Z = FMath::FInterpTo(
-			Movement->Velocity.Z,
-			GetDesiredFlightVerticalVelocity(),
-			DeltaSeconds,
-			WindAcceleration);
 	}
 }
 
@@ -142,13 +138,11 @@ void AUTPFlyingAnimalCharacter::StartJump()
 
 void AUTPFlyingAnimalCharacter::OnPossessedBySoul_Implementation(APawn* SoulPawn)
 {
+	StopSettlingAfterRelease();
 	Super::OnPossessedBySoul_Implementation(SoulPawn);
 
 	RemainingLandingTime = 0.0f;
-	if (FlightState == EUTPFlightState::Landing)
-	{
-		FlightState = EUTPFlightState::Perched;
-	}
+	FlightState = EUTPFlightState::Perched;
 
 	if (UCharacterMovementComponent* Movement = GetCharacterMovement())
 	{
@@ -161,6 +155,7 @@ void AUTPFlyingAnimalCharacter::OnPossessedBySoul_Implementation(APawn* SoulPawn
 
 void AUTPFlyingAnimalCharacter::OnReleasedFromSoul_Implementation(APawn* SoulPawn)
 {
+	const bool bReleasedInAir = !IsOnWalkableGround();
 	Super::OnReleasedFromSoul_Implementation(SoulPawn);
 
 	FlightState = EUTPFlightState::Perched;
@@ -171,12 +166,58 @@ void AUTPFlyingAnimalCharacter::OnReleasedFromSoul_Implementation(APawn* SoulPaw
 	if (UCharacterMovementComponent* Movement = GetCharacterMovement())
 	{
 		Movement->Velocity = FVector::ZeroVector;
+		if (bReleasedInAir)
+		{
+			// Body transfers are allowed during flight. Let the abandoned body
+			// fall to the floor instead of freezing it at its airborne position.
+			if (!bSettlingAfterRelease)
+			{
+				bWasPhysicsWithNoControllerEnabled = Movement->bRunPhysicsWithNoController;
+			}
+			bSettlingAfterRelease = true;
+			FlightState = EUTPFlightState::Glide;
+			Movement->bRunPhysicsWithNoController = true;
+			Movement->SetMovementMode(MOVE_Falling);
+		}
 	}
 }
 
 bool AUTPFlyingAnimalCharacter::CanReleaseFromSoul_Implementation() const
 {
-	return FlightState == EUTPFlightState::Perched || FlightState == EUTPFlightState::Landing;
+	// Taking off, gliding and riding wind must never lock possession.
+	return true;
+}
+
+void AUTPFlyingAnimalCharacter::Landed(const FHitResult& Hit)
+{
+	Super::Landed(Hit);
+	if (FlightState == EUTPFlightState::Falling && IsSoulPossessed())
+	{
+		BeginLanding();
+	}
+	if (bSettlingAfterRelease && !IsSoulPossessed())
+	{
+		StopSettlingAfterRelease();
+		FlightState = EUTPFlightState::Perched;
+		if (UCharacterMovementComponent* Movement = GetCharacterMovement())
+		{
+			Movement->StopMovementImmediately();
+			Movement->DisableMovement();
+		}
+	}
+}
+
+void AUTPFlyingAnimalCharacter::StopSettlingAfterRelease()
+{
+	if (!bSettlingAfterRelease)
+	{
+		return;
+	}
+	if (UCharacterMovementComponent* Movement = GetCharacterMovement())
+	{
+		Movement->bRunPhysicsWithNoController = bWasPhysicsWithNoControllerEnabled;
+	}
+	bSettlingAfterRelease = false;
 }
 
 void AUTPFlyingAnimalCharacter::EnterWindZone_Implementation(
@@ -233,7 +274,7 @@ void AUTPFlyingAnimalCharacter::RebuildWindState()
 
 		if (FlightState == EUTPFlightState::WindRide)
 		{
-			FlightState = EUTPFlightState::Glide;
+			BeginWindExitFall();
 		}
 		return;
 	}
@@ -243,9 +284,31 @@ void AUTPFlyingAnimalCharacter::RebuildWindState()
 	CurrentLiftStrength = SelectedSource->Lift;
 	bIsInsideWindZone = true;
 
-	if (FlightState == EUTPFlightState::Glide)
+	if (FlightState == EUTPFlightState::Glide || FlightState == EUTPFlightState::Falling)
 	{
 		FlightState = EUTPFlightState::WindRide;
+		if (IsSoulPossessed())
+		{
+			if (UCharacterMovementComponent* Movement = GetCharacterMovement())
+			{
+				Movement->SetMovementMode(MOVE_Flying);
+			}
+		}
+	}
+}
+
+void AUTPFlyingAnimalCharacter::BeginWindExitFall()
+{
+	FlightState = EUTPFlightState::Falling;
+	RemainingAbilityTime = 0.0f;
+	bIsAbilityActive = false;
+	if (UCharacterMovementComponent* Movement = GetCharacterMovement())
+	{
+		// Stop the updraft's residual rise, then use ordinary CharacterMovement
+		// gravity and falling physics without glide-speed or ability overrides.
+		Movement->Velocity.Z = FMath::Min(Movement->Velocity.Z, 0.0);
+		Movement->GravityScale = 1.0f;
+		Movement->SetMovementMode(MOVE_Falling);
 	}
 }
 
@@ -263,11 +326,26 @@ bool AUTPFlyingAnimalCharacter::IsGliding() const
 
 void AUTPFlyingAnimalCharacter::StartTakeoff()
 {
-	if (!IsSoulPossessed() || IsPossessionTransitionInputLocked() || FlightState != EUTPFlightState::Perched)
+	if (!IsSoulPossessed() || IsPossessionTransitionInputLocked())
 	{
 		return;
 	}
 
+	// Input can arrive before the actor tick has noticed this frame's contact.
+	if ((IsFlying() || FlightState == EUTPFlightState::Falling) && IsOnWalkableGround())
+	{
+		BeginLanding();
+	}
+
+	// Ground contact permits another jump immediately, including during the
+	// landing animation's stabilization time. Airborne flight still cannot jump.
+	if (FlightState != EUTPFlightState::Perched &&
+		!(FlightState == EUTPFlightState::Landing && IsOnWalkableGround()))
+	{
+		return;
+	}
+
+	RemainingLandingTime = 0.0f;
 	FlightState = EUTPFlightState::Takeoff;
 	if (UCharacterMovementComponent* Movement = GetCharacterMovement())
 	{
@@ -292,70 +370,27 @@ void AUTPFlyingAnimalCharacter::ActivateAnimalAbility()
 float AUTPFlyingAnimalCharacter::GetDesiredFlightVerticalVelocity() const
 {
 	const float SinkScale = bIsAbilityActive ? AbilitySinkMultiplier : 1.0f;
-	float DesiredVerticalVelocity = CurrentLiftStrength - GlideSinkSpeed * SinkScale;
-
-	// Keep the capsule a small distance above the floor. This allows a fox
-	// outside a wind zone to glide down, then hover instead of landing or
-	// repeatedly falling under gravity.
-	float GroundDistance = 0.0f;
-	if (TryGetGroundDistance(GroundDistance))
-	{
-		const float DesiredGroundDistance =
-			GetCapsuleComponent()->GetScaledCapsuleHalfHeight() + GroundHoverHeight;
-		const float HeightError = DesiredGroundDistance - GroundDistance;
-		const float HoverCorrection = FMath::Clamp(
-			HeightError * GroundHoverCorrectionStrength,
-			-GlideSinkSpeed * SinkScale,
-			GroundHoverRiseSpeed);
-		DesiredVerticalVelocity = FMath::Max(DesiredVerticalVelocity, HoverCorrection);
-	}
-
-	return DesiredVerticalVelocity;
+	// Include the current's world-space vertical velocity. Rotating a wind zone
+	// upward must provide an updraft rather than only its additional lift.
+	const float WindVerticalVelocity = CurrentWindDirection.Z * CurrentWindSpeed;
+	return WindVerticalVelocity + CurrentLiftStrength
+		- GlideSinkSpeed * SinkScale;
 }
 
-bool AUTPFlyingAnimalCharacter::TryGetGroundDistance(float& OutDistance) const
-{
-	const UWorld* World = GetWorld();
-	const UCapsuleComponent* Capsule = GetCapsuleComponent();
-	if (!World || !Capsule)
-	{
-		return false;
-	}
-
-	const FVector TraceStart = GetActorLocation();
-	const float TraceLength = Capsule->GetScaledCapsuleHalfHeight() +
-		GroundHoverHeight + GroundHoverTraceDistance;
-	FHitResult Hit;
-	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(FlyingAnimalGroundHover), false, this);
-	if (!World->LineTraceSingleByChannel(
-		Hit,
-		TraceStart,
-		TraceStart - FVector::UpVector * TraceLength,
-		ECC_Visibility,
-		QueryParams))
-	{
-		return false;
-	}
-
-	OutDistance = Hit.Distance;
-	return true;
-}
-
-bool AUTPFlyingAnimalCharacter::IsOnValidLandingSurface() const
+bool AUTPFlyingAnimalCharacter::IsOnWalkableGround() const
 {
 	const UCharacterMovementComponent* Movement = GetCharacterMovement();
-	if (!Movement || !Movement->IsMovingOnGround())
+	if (!Movement || Movement->Velocity.Z > 0.0f)
 	{
 		return false;
 	}
 
-	if (!bRequireLandingTag)
-	{
-		return true;
-	}
-
-	const AActor* FloorActor = Movement->CurrentFloor.HitResult.GetActor();
-	return IsValid(FloorActor) && FloorActor->ActorHasTag(LandingPlatformTag);
+	// MOVE_Flying does not update CurrentFloor or automatically enter walking.
+	// Any walkable floor must end the flight, including ordinary untagged ground.
+	FFindFloorResult Floor;
+	Movement->FindFloor(GetActorLocation(), Floor, false);
+	return Floor.IsWalkableFloor() &&
+		Floor.GetDistanceToFloor() <= UCharacterMovementComponent::MAX_FLOOR_DIST;
 }
 
 void AUTPFlyingAnimalCharacter::BeginLanding()
@@ -367,6 +402,8 @@ void AUTPFlyingAnimalCharacter::BeginLanding()
 
 	FlightState = EUTPFlightState::Landing;
 	RemainingLandingTime = LandingStabilizationTime;
+	RemainingAbilityTime = 0.0f;
+	bIsAbilityActive = false;
 
 	if (UCharacterMovementComponent* Movement = GetCharacterMovement())
 	{
@@ -380,15 +417,16 @@ void AUTPFlyingAnimalCharacter::UpdateFlightState(float DeltaSeconds)
 	if (FlightState == EUTPFlightState::Landing)
 	{
 		RemainingLandingTime = FMath::Max(0.0f, RemainingLandingTime - DeltaSeconds);
-		if (RemainingLandingTime <= 0.0f && IsOnValidLandingSurface())
+		if (RemainingLandingTime <= 0.0f && IsOnWalkableGround())
 		{
 			FlightState = EUTPFlightState::Perched;
 		}
 		return;
 	}
 
-	if ((FlightState == EUTPFlightState::WindRide || FlightState == EUTPFlightState::Glide) &&
-		IsOnValidLandingSurface())
+	if ((FlightState == EUTPFlightState::WindRide || FlightState == EUTPFlightState::Glide ||
+		FlightState == EUTPFlightState::Falling) &&
+		IsOnWalkableGround())
 	{
 		BeginLanding();
 		return;
@@ -404,7 +442,7 @@ void AUTPFlyingAnimalCharacter::UpdateFlightState(float DeltaSeconds)
 	}
 	else if (FlightState == EUTPFlightState::WindRide && !bIsInsideWindZone)
 	{
-		FlightState = EUTPFlightState::Glide;
+		BeginWindExitFall();
 	}
 }
 
