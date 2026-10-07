@@ -45,6 +45,9 @@ protected:
     UPROPERTY(EditAnywhere, Category = "Puzzle Link")
     TArray<AAreaForceVolume*> TargetWindAreas;
 
+    UPROPERTY(EditAnywhere, Category = "Puzzle Link")
+    bool bIsReverseTrigger;
+
     /**
      * Additional targets that follow this trigger's state. Assign any actor
      * implementing TPToggleableInterface, such as doors, wind zones, water
