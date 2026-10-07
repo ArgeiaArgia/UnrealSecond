@@ -69,4 +69,5 @@ private:
 
 	void ApplyWaterToActor(AActor* OtherActor);
 	void RemoveWaterFromActor(AActor* OtherActor);
+	void RefreshWaterCollision();
 };

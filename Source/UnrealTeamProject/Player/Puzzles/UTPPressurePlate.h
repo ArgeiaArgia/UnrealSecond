@@ -50,6 +50,13 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Puzzle|Pressure Plate|Targets", meta=(MustImplement="/Script/UnrealTeamProject.TPToggleableInterface"))
 	TArray<TObjectPtr<AActor>> TargetWindZones;
 
+	/**
+	 * 눌린 동안 켜고, 해제되면 끌 범용 대상입니다. 문·바람·물 등
+	 * TPToggleableInterface를 구현한 어떤 퍼즐 액터든 지정할 수 있습니다.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Puzzle|Pressure Plate|Targets", meta=(MustImplement="/Script/UnrealTeamProject.TPToggleableInterface"))
+	TArray<TObjectPtr<AActor>> ToggleableTargets;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Puzzle|Pressure Plate", meta=(ClampMin="0.0"))
 	float RequiredWeight = 80.0f;
 

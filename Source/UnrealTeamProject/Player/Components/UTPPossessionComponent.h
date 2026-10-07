@@ -90,12 +90,18 @@ private:
 
 	TWeakObjectPtr<APawn> PendingReleasedBody;
 
+	// Used when a currently controlled animal transfers directly into another
+	// possessable animal.  The previous body remains in the world, but the
+	// camera and input lock still use the same cinematic interval as Soul entry.
+	TWeakObjectPtr<APawn> PendingBodyTransferSource;
+
 	float RemainingSoulTime = 0.0f;
 	float RemainingPossessionTransitionTime = 0.0f;
 	bool bSoulWindowActive = false;
 	bool bPossessionTransitionInProgress = false;
 	bool bPossessionCinematicActive = false;
 	bool bPossessionCinematicReturnsToSoul = false;
+	bool bPossessionCinematicTransfersBody = false;
 
 	AUTPPlayerController* GetOwningPlayerController() const;
 	APawn* GetCurrentControlledPawn() const;
@@ -105,6 +111,8 @@ private:
 	void DestroySoulPawn();
 	bool BeginPossessionTransition(APawn* TargetPawn);
 	void CompletePossessionTransition();
+	bool BeginBodyPossessionTransition(APawn* PreviousBody, APawn* TargetPawn);
+	void CompleteBodyPossessionTransition();
 	bool BeginSoulReleaseTransition(APawn* PreviousBody, AUTPSoulPawn* NewSoulPawn);
 	void CompleteSoulReleaseTransition();
 	void CancelPossessionTransition();

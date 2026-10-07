@@ -11,6 +11,7 @@ AAreaForceVolume::AAreaForceVolume()
     VolumeBox = CreateDefaultSubobject<UBoxComponent>(TEXT("VolumeBox"));
     RootComponent = VolumeBox;
     VolumeBox->SetCollisionProfileName(TEXT("Trigger"));
+    VolumeBox->SetCollisionResponseToChannel(ECC_GameTraceChannel4, ECR_Overlap);
 
     PushDirection = FVector(0.0f, 0.0f, 1.0f);
     PushStrength = 2000.0f;

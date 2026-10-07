@@ -11,6 +11,7 @@ APuzzleLever::APuzzleLever()
     TriggerBox = CreateDefaultSubobject<UBoxComponent>(TEXT("TriggerBox"));
     SetRootComponent(TriggerBox);
     TriggerBox->SetCollisionProfileName(TEXT("OverlapAllDynamic"));
+    TriggerBox->SetCollisionResponseToChannel(ECC_GameTraceChannel4, ECR_Overlap);
     TriggerBox->OnComponentBeginOverlap.AddDynamic(this, &APuzzleLever::OnTriggerBeginOverlap);
     TriggerBox->OnComponentEndOverlap.AddDynamic(this, &APuzzleLever::OnTriggerEndOverlap);
 

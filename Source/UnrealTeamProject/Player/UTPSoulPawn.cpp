@@ -11,7 +11,6 @@
 #include "UTPPlayerController.h"
 
 #include "Engine/World.h"
-#include "CollisionShape.h"
 #include "DrawDebugHelpers.h"
 #include "EnhancedInputComponent.h"
 #include "GameFramework/Controller.h"
@@ -31,15 +30,16 @@ AUTPSoulPawn::AUTPSoulPawn()
 	// The soul passes through characters. Possession is intentionally initiated
 	// by the player's right-mouse release, never by an overlap event.
 	CollisionComponent->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
+	CollisionComponent->SetCollisionResponseToChannel(ECC_GameTraceChannel4, ECR_Overlap);
 
 	VisualMeshComponent = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("VisualMeshComponent"));
 	VisualMeshComponent->SetupAttachment(CollisionComponent);
 	VisualMeshComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	VisualMeshComponent->SetGenerateOverlapEvents(false);
 	VisualMeshComponent->SetRelativeLocation(FVector::ZeroVector);
-	// The Ghost asset is authored facing negative X. Align its visual forward
-	// direction with this Pawn's positive X forward axis.
-	VisualMeshComponent->SetRelativeRotation(FRotator(0.0f, 180.0f, 0.0f));
+	// The Ghost asset's forward axis is +Y. Rotate it into the Pawn's +X
+	// forward direction so it visibly faces the PlayerStart direction.
+	VisualMeshComponent->SetRelativeRotation(FRotator(0.0f, -90.0f, 0.0f));
 
 	MovementComponent = CreateDefaultSubobject<UFloatingPawnMovement>(TEXT("MovementComponent"));
 	MovementComponent->UpdatedComponent = CollisionComponent;
@@ -64,6 +64,11 @@ AUTPSoulPawn::AUTPSoulPawn()
 void AUTPSoulPawn::BeginPlay()
 {
 	Super::BeginPlay();
+
+	// BP_SoulPawn stores an old component rotation override. Reset it at runtime
+	// so the mesh follows this Pawn's PlayerStart-derived actor rotation.
+	VisualMeshComponent->SetUsingAbsoluteRotation(false);
+	VisualMeshComponent->SetRelativeRotation(FRotator(0.0f, -90.0f, 0.0f));
 	ApplyAnimInstanceClass();
 }
 
@@ -324,98 +329,25 @@ void AUTPSoulPawn::UpdateFocusedTarget()
 		return;
 	}
 
-	FRotator TraceRotation;
 	FVector ViewLocation;
-	PlayerController->GetPlayerViewPoint(ViewLocation, TraceRotation);
+	FRotator ViewRotation;
+	PlayerController->GetPlayerViewPoint(ViewLocation, ViewRotation);
 
-	// The Pawn root may be positioned below the visible soul mesh. Start from the
-	// rendered mesh bounds so the sweep visibly originates from the soul center.
-	const FVector TraceStart = VisualMeshComponent && VisualMeshComponent->IsRegistered()
-		? VisualMeshComponent->Bounds.Origin
-		: CollisionComponent->GetComponentLocation();
-	const FVector TraceEnd = TraceStart + TraceRotation.Vector() * PossessionTraceDistance;
-
-	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(SoulPossessionTrace), false, this);
-
-	const FCollisionShape TraceShape = FCollisionShape::MakeSphere(PossessionTraceRadius);
-	TArray<FHitResult> HitResults;
-	// Search only Pawn objects here. A wide sweep against Visibility also catches
-	// the floor under a target before it reaches that target.
-	const FCollisionObjectQueryParams TargetObjectQuery(ECC_Pawn);
-	World->SweepMultiByObjectType(
-		HitResults,
-		TraceStart,
-		TraceEnd,
-		FQuat::Identity,
-		TargetObjectQuery,
-		TraceShape,
-		QueryParams);
-
-	AActor* NewTarget = nullptr;
-	FHitResult RelevantHit;
-	bool bHasRelevantHit = false;
-	for (const FHitResult& Hit : HitResults)
-	{
-		// The widened sweep may begin in floor collision around the soul. That
-		// initial penetration should not hide an intended target farther ahead.
-		if (Hit.bStartPenetrating)
-		{
-			continue;
-		}
-
-		AActor* HitActor = Hit.GetActor();
-		if (HitActor && CanPossessActor(HitActor))
-		{
-			// The broad Pawn sweep deliberately ignores the floor. Retain normal
-			// wall occlusion by checking a thin Visibility ray to this candidate.
-			FHitResult SightHit;
-			const bool bSightBlocked = World->LineTraceSingleByChannel(
-				SightHit,
-				TraceStart,
-				Hit.ImpactPoint,
-				PossessionTraceChannel,
-				QueryParams);
-
-			if (!bSightBlocked || SightHit.GetActor() == HitActor)
-			{
-				NewTarget = HitActor;
-				RelevantHit = Hit;
-				bHasRelevantHit = true;
-				break;
-			}
-
-			RelevantHit = SightHit;
-			bHasRelevantHit = true;
-			break;
-		}
-	}
+	AUTPPlayerController* PossessionController = Cast<AUTPPlayerController>(PlayerController);
+	AActor* NewTarget = PossessionController
+		? PossessionController->FindCameraPossessionTarget(this, PossessionTraceDistance)
+		: nullptr;
 
 	if (bDrawPossessionTrace)
 	{
-		const FVector DebugEnd = bHasRelevantHit ? RelevantHit.Location : TraceEnd;
-		const FColor DebugColor = NewTarget ? FColor::Green : (bHasRelevantHit ? FColor::Red : FColor::Cyan);
-		const FVector SweepVector = DebugEnd - TraceStart;
-		const float SweepLength = SweepVector.Length();
-		if (SweepLength > KINDA_SMALL_NUMBER)
+		const FVector DebugEnd = NewTarget
+			? NewTarget->GetComponentsBoundingBox(true).GetCenter()
+			: ViewLocation + ViewRotation.Vector() * PossessionTraceDistance;
+		const FColor DebugColor = NewTarget ? FColor::Green : FColor::Cyan;
+		DrawDebugLine(World, ViewLocation, DebugEnd, DebugColor, false, 0.0f, 0, 1.5f);
+		if (NewTarget)
 		{
-			const FVector SweepDirection = SweepVector / SweepLength;
-			const FVector SweepCenter = (TraceStart + DebugEnd) * 0.5f;
-			DrawDebugCapsule(
-				World,
-				SweepCenter,
-				SweepLength * 0.5f + PossessionTraceRadius,
-				PossessionTraceRadius,
-				FRotationMatrix::MakeFromZ(SweepDirection).ToQuat(),
-				DebugColor,
-				false,
-				0.0f,
-				0,
-				1.5f);
-		}
-
-		if (bHasRelevantHit)
-		{
-			DrawDebugSphere(World, RelevantHit.ImpactPoint, 12.0f, 12, DebugColor, false, 0.0f, 0, 1.5f);
+			DrawDebugSphere(World, DebugEnd, 18.0f, 12, DebugColor, false, 0.0f, 0, 1.5f);
 		}
 	}
 
