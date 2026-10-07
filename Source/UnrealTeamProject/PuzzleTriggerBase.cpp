@@ -109,10 +109,12 @@ void APuzzleTriggerBase::ActivateTrigger()
 
     for (AAreaForceVolume* Wind : TargetWindAreas)
     {
-        if (IsValid(Wind))
+        if (Wind)
         {
-            Wind->ActivateWind();
-            HandledTargets.Add(Wind);
+            if (bIsReverseTrigger)
+                Wind->DeactivateWind(); // 반전 스위치면 밟았을 때 끈다
+            else
+                Wind->ActivateWind();   // 일반 스위치면 밟았을 때 켠다
         }
     }
 
@@ -156,10 +158,12 @@ void APuzzleTriggerBase::DeactivateTrigger()
 
     for (AAreaForceVolume* Wind : TargetWindAreas)
     {
-        if (IsValid(Wind))
+        if (Wind)
         {
-            Wind->DeactivateWind();
-            HandledTargets.Add(Wind);
+            if (bIsReverseTrigger)
+                Wind->ActivateWind();   // 반전 스위치면 내려왔을 때 다시 켠다
+            else
+                Wind->DeactivateWind(); // 일반 스위치면 내려왔을 때 끈다
         }
     }
 

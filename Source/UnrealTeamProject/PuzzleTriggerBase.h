@@ -45,6 +45,9 @@ protected:
     UPROPERTY(EditAnywhere, Category = "Puzzle Link")
     TArray<AAreaForceVolume*> TargetWindAreas;
 
+    UPROPERTY(EditAnywhere, Category = "Puzzle Link")
+    bool bIsReverseTrigger;
+
     int32 ValidOverlappingCount;
 
     void RefreshTriggerState();
